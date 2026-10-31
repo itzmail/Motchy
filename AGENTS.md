@@ -8,7 +8,8 @@ This repo is being turned into Motchy, a developer-first productivity app. Branc
 
 - **`main` is sync-only.** It tracks `upstream/main` (the original `lucacadalora/oyenza-studio`) so new upstream features can be pulled in and ported to Motchy. Never commit Motchy work to `main`, never rebrand or remove features there. Only fast-forward it from `upstream/main`.
 - **`motchy` is the Motchy app branch.** All Motchy work (feature removal, rebrand, new features, docs, CI) happens here, or on branches cut from it. New upstream changes reach Motchy by merging or cherry-picking from `main` into `motchy`.
-- Remotes: `upstream` is the original repo (read-only, never push), `motchy` is `itzmail/Motchy` (push `motchy` work here), `origin` is the old fork `itzmail/oyenza-studio`.
+- Remotes: `upstream` is the original repo (read-only, push is disabled), `origin` is `itzmail/Motchy` (local `motchy` tracks `origin/main`), `fork` is the old fork `itzmail/oyenza-studio`.
+- `cargo` may be missing from the shell PATH: `export PATH="$HOME/.cargo/bin:$PATH"`. Run tests with `--no-fail-fast`.
 - Before any edit or commit, run `git branch --show-current`. If it says `main`, stop and switch to `motchy`.
 - Do not commit or push unless the maintainer asks.
 
