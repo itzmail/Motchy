@@ -95,7 +95,7 @@ KEEP = {
     "page-media", "page-focus", "page-shelf", "page-tasks", "page-today-day",
     "page-shelf-phone-ask", "oyenza-money", "page-oyenza", "page-oyenza-signin", "page-settings", "page-system",
     "page-shelf-pairing", "page-addons", "page-prayer", "prayer-countdown",
-    "game-stats", "page-system-games", "page-system-power-estimate", "page-script", "page-script-reading", "media-lyric",
+    "page-system-power-estimate", "page-script", "page-script-reading", "media-lyric",
     "message-notice", "notes-activity",
     "page-ai",
     "page-settings-tabs", "page-notes-listening",
@@ -117,7 +117,7 @@ MAC_STRIP = (840, 136)
 MAC_PILL_KEEP = {"idle-clock", "media-activity", "volume-hud", "page-media", "page-today-day"}
 MAC_PILL_STRIP = (840, 216)
 # Resting states the page shows at twice their size, cut from a 400 % run.
-ZOOM_KEEP = {"idle-clock", "media-activity", "media-lyric", "timer-activity", "volume-hud", "bluetooth-hud", "prayer-countdown", "oyenza-money", "game-stats"}
+ZOOM_KEEP = {"idle-clock", "media-activity", "media-lyric", "timer-activity", "volume-hud", "bluetooth-hud", "prayer-countdown", "oyenza-money"}
 
 
 def cut(shot: Path, alpha: Path, floating: bool = False) -> Image.Image:

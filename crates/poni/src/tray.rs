@@ -59,10 +59,6 @@ pub enum MenuCmd {
     ToggleLyrics,
     /// true: hide in full-screen apps; false: stay on top of them.
     SetHideFullscreen(bool),
-    /// Show over games (frame rate, GPU and CPU on the island over a game).
-    ToggleGameStats,
-    /// Show over games for a few seconds at a time instead of all along.
-    ToggleGamePeek,
     ToggleSounds,
     TogglePinned,
     ToggleAutostart,
@@ -141,9 +137,6 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink, recorder: boo
             items: vec![
                 fullscreen("Hide", true),
                 fullscreen("Stay on top", false),
-                MenuItem::Separator,
-                item("Show FPS, GPU and CPU over games", MenuCmd::ToggleGameStats, s.game_stats),
-                item("Only for a few seconds (no added delay)", MenuCmd::ToggleGamePeek, s.game_peek),
             ],
         },
         item("Start with Windows", MenuCmd::ToggleAutostart, crate::autostart::is_enabled()),
@@ -409,8 +402,6 @@ mod tests {
                 vec![
                     ("Hide".to_string(), MenuCmd::SetHideFullscreen(true), hide),
                     ("Stay on top".to_string(), MenuCmd::SetHideFullscreen(false), !hide),
-                    ("Show FPS, GPU and CPU over games".to_string(), MenuCmd::ToggleGameStats, false),
-                    ("Only for a few seconds (no added delay)".to_string(), MenuCmd::ToggleGamePeek, false),
                 ]
             );
         }

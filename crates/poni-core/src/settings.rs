@@ -107,17 +107,6 @@ pub struct Settings {
     pub addons: BTreeMap<String, bool>,
     /// The Prayer times add-on's choices.
     pub prayer: PrayerSettings,
-    /// Show over games: while a full-screen app is in front, the island
-    /// shows its frame rate, the GPU's load and temperature and the CPU's
-    /// load. Turning it on also keeps the island on top of full-screen apps.
-    pub game_stats: bool,
-    /// Show over games, readout only for a few seconds (when the game comes
-    /// to the front, when the frame rate drops sharply, on Alt+Shift+F),
-    /// then the island hides and Windows sends the game's frames straight to
-    /// the screen. Off (the default), the readout stays while the game is in
-    /// front. Its own name: the corner test build wrote `game_readout`
-    /// ("peek" as its default) into the files of the people who tried it.
-    pub game_peek: bool,
     /// The AI tab's choices (its readers are the `studio-usage` crate).
     pub usage: UsageSettings,
     /// The Record page's choices (Oyenza Studio Recorder).
@@ -237,8 +226,6 @@ impl Default for Settings {
             system_history: true,
             addons: BTreeMap::new(),
             prayer: PrayerSettings::default(),
-            game_stats: false,
-            game_peek: false,
             usage: UsageSettings::default(),
             record: RecordSettings::default(),
             notifications: crate::notifications::NotificationSettings::default(),
@@ -247,21 +234,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Show over games needs the island on top of full-screen apps, so the
-    /// two follow each other: turning the readout on picks Stay on top, and
-    /// picking Hide afterwards turns the readout off. `before` is the state
-    /// the change started from.
-    pub fn pair_game_stats(&mut self, before: &Settings) {
-        if !(self.game_stats && self.hide_in_fullscreen) {
-            return;
-        }
-        if before.game_stats && !before.hide_in_fullscreen {
-            self.game_stats = false;
-        } else {
-            self.hide_in_fullscreen = false;
-        }
-    }
-
     /// Is the add-on `id` switched on?
     pub fn addon_on(&self, id: &str) -> bool {
         self.addons.get(id).copied().unwrap_or(false)
@@ -310,10 +282,6 @@ impl Settings {
         self.settings_version = self.settings_version.max(SETTINGS_VERSION);
         // Step aside is no longer offered: the island stays over maximized windows.
         self.step_aside = false;
-        // Show over games needs the island on top of full-screen apps.
-        if self.game_stats {
-            self.hide_in_fullscreen = false;
-        }
         self.hover_delay_ms = self.hover_delay_ms.min(2000);
         self.lyrics_offset_ms = self.lyrics_offset_ms.clamp(-5000, 5000);
         self.collapse_delay_ms = self.collapse_delay_ms.min(5000);
@@ -444,46 +412,6 @@ mod tests {
         // A file from a newer Poni keeps its version.
         let s: Settings = serde_json::from_str(r#"{"settings_version":9}"#).unwrap();
         assert_eq!(s.sanitized().settings_version, 9);
-    }
-
-    #[test]
-    fn game_stats_and_full_screen_choice_follow_each_other() {
-        // The default hides the island over full-screen apps; turning the
-        // readout on keeps it on top instead.
-        let before = Settings::default();
-        let mut s = Settings { game_stats: true, ..before.clone() };
-        s.pair_game_stats(&before);
-        assert!(s.game_stats && !s.hide_in_fullscreen);
-        // Picking Hide afterwards turns the readout off.
-        let before = s.clone();
-        let mut s = Settings { hide_in_fullscreen: true, ..before.clone() };
-        s.pair_game_stats(&before);
-        assert!(!s.game_stats && s.hide_in_fullscreen);
-        // Stay on top alone, and the readout off, change nothing.
-        let before = Settings { hide_in_fullscreen: false, ..Settings::default() };
-        let mut s = before.clone();
-        s.pair_game_stats(&before);
-        assert_eq!(s, before);
-        // A hand-edited file with both on keeps the readout, when changed
-        // and when loaded.
-        let mut s = Settings { game_stats: true, ..Settings::default() };
-        s.pair_game_stats(&Settings::default());
-        assert!(s.game_stats && !s.hide_in_fullscreen);
-        let s: Settings = serde_json::from_str(r#"{"game_stats":true,"hide_in_fullscreen":true}"#).unwrap();
-        let s = s.sanitized();
-        assert!(s.game_stats && !s.hide_in_fullscreen);
-    }
-
-    #[test]
-    fn the_readout_stays_unless_peeks_are_picked() {
-        // Files from 0.2.0 and before, and from the corner test build (its
-        // "peek" was its default, not a choice), get the readout that stays.
-        for old in [r#"{"game_stats":true}"#, r#"{"game_stats":true,"game_readout":"peek"}"#, r#"{"game_readout":"corner"}"#] {
-            let s: Settings = serde_json::from_str(old).unwrap();
-            assert!(!s.game_peek, "{old}");
-        }
-        let s: Settings = serde_json::from_str(r#"{"game_stats":true,"game_peek":true}"#).unwrap();
-        assert!(s.game_peek);
     }
 
     #[test]

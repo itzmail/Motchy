@@ -1,6 +1,5 @@
 //! The other live activities, collapsed: a screen recording, the focus
-//! timer, music with the timer, the minutes before a prayer, the readout
-//! over games. Each is a
+//! timer, music with the timer, the minutes before a prayer. Each is a
 //! 32-DIP capsule sized to what it shows (spec 6.1 and 6.8).
 //!
 //! The Pill way: content keeps clear of the round ends (16 DIPs for text, 12
@@ -18,22 +17,19 @@ use crate::activities::{draw_prayer_ok, prayer_countdown, Activity, PRAYER_OK_RO
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::Geom;
-use crate::state::{AppState, FpsAccess};
+use crate::state::AppState;
 use crate::ui::Ui;
 use poni_core::datetime::fmt_countdown;
-use poni_core::frames::fmt_fps;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::pomodoro::Phase;
 use poni_core::prayer::Prayer;
 use poni_core::svgpath::Seg;
-use poni_core::sysmon::fmt_pct;
 use std::cell::Cell;
 
 /// Every collapsed pill is this tall, a capsule (radius = height / 2).
 const H: f32 = 32.0;
-/// Content insets from the round ends: text, a glyph sitting in the end
-/// cap, album art sitting in it.
-const TEXT_INSET: f32 = 16.0;
+/// Content insets from the round ends: a glyph sitting in the end cap,
+/// album art sitting in it.
 const GLYPH_INSET: f32 = 12.0;
 const ART_INSET: f32 = 6.0;
 /// Primary content: white at full strength.
@@ -61,17 +57,6 @@ const MARK_GAP: f32 = 7.0;
 /// in the other end (`activities::draw_prayer_ok`).
 const MOON: f32 = 14.0;
 const MOON_GAP: f32 = 8.0;
-/// The readout over games: the frame rate, the GPU and the CPU between thin
-/// dividers, each label 3 from its value.
-const GAME_GAP: f32 = 10.0;
-const LABEL_GAP: f32 = 3.0;
-const DOT_R: f32 = 1.25;
-const DIVIDER: Color = Color::white(0.18);
-const DIVIDER_H: f32 = 14.0;
-/// How far a vertically centred line's baseline sits below its centre, per
-/// DIP of type size (Segoe UI and SF are both about 0.4): smaller words move
-/// down by the difference, so the readout reads along one baseline.
-const BASELINE_K: f32 = 0.4;
 
 fn capsule(w: f32) -> Geom {
     Geom::new(w, H, H / 2.0)
@@ -85,7 +70,6 @@ pub fn geom(a: Activity, st: &AppState) -> Option<Geom> {
         Activity::Timer => TIMER_W,
         Activity::MediaTimer => MEDIA_TIMER_W,
         Activity::Prayer => prayer_w(st),
-        Activity::Game => game_w(st),
         Activity::Recording if st.rec_elapsed() >= 3600.0 => TIMER_LONG_W,
         Activity::Recording => TIMER_W,
     };
@@ -98,7 +82,6 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) -> bool {
         Activity::Timer => draw_timer(ui, st, body),
         Activity::MediaTimer => draw_media_timer(ui, st, body),
         Activity::Prayer => draw_prayer(ui, st, body),
-        Activity::Game => draw_game(ui, st, body),
         Activity::Recording => draw_recording(ui, st, body),
     }
     true
@@ -117,14 +100,13 @@ pub fn is_live(a: Activity, _st: &AppState) -> Option<bool> {
 
 // ------------------------------------------------------------ fitted widths
 
-// The prayer and game pills fit what they show, but `geom` has no canvas
+// The prayer pill fits what it shows, but `geom` has no canvas
 // to measure text with. So each keeps the width it measured when last
 // drawn, with what it showed then: its first frame uses an estimate, and
 // every later one fits (the island just retargets on the second frame of
 // its morph). Only the drawing thread touches these.
 thread_local! {
     static PRAYER_FIT: Cell<Option<(Prayer, f32)>> = const { Cell::new(None) };
-    static GAME_FIT: Cell<Option<(GameKey, f32)>> = const { Cell::new(None) };
 }
 
 /// Snap a DIP coordinate to the device-pixel grid (crisp 1-DIP dividers
@@ -286,145 +268,12 @@ fn draw_prayer(ui: &mut Ui, st: &AppState, body: Rect) {
     ui.c.text(&text, Rect::new(x0 + MOON + MOON_GAP, body.y, tw + 2.0, body.h), &ts);
 }
 
-// --------------------------------------------------------------------- game
-
-/// What sizes the readout's slots: a frame rate of four digits, and the
-/// GPU's temperature (when its driver reports one) at 100 degrees or more.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct GameKey {
-    fps4: bool,
-    temp: Option<bool>,
-}
-
-/// The GPU's temperature for the readout, when its driver reports one.
-fn game_temp(st: &AppState) -> Option<f32> {
-    st.system.latest.as_ref()?.gpu.as_ref()?.temp_c
-}
-
-fn game_key(st: &AppState) -> GameKey {
-    GameKey { fps4: st.game.rate.is_some_and(|r| r.fps.round() >= 1000.0), temp: game_temp(st).map(|t| t.round() >= 100.0) }
-}
-
-fn game_w(st: &AppState) -> f32 {
-    let key = game_key(st);
-    if let Some((k, w)) = GAME_FIT.with(Cell::get) {
-        if k == key {
-            return w;
-        }
-    }
-    // Before the first frame, roughly Segoe UI Variable's widths: the frame
-    // rate's slot, the rest of the run, the dot and the temperature.
-    let fps = if key.fps4 { 34.0 } else { 25.0 };
-    let temp = match key.temp {
-        Some(hot) => if hot { 36.0 } else { 28.0 },
-        None => 0.0,
-    };
-    (2.0 * TEXT_INSET + fps + 175.0 + temp).ceil()
-}
-
-/// One piece of the readout. A number sits right-aligned in the slot of its
-/// widest value, so it never moves as it changes. A label, or the dash for
-/// a number not there yet, takes its own width; the pill still keeps the
-/// number's room (`room`), and the readout centres on what it shows, so it
-/// shifts once, when the number arrives. The dot between the GPU's load and
-/// its temperature is drawn: fonts put a middle dot at different heights.
-enum Piece {
-    Text { text: String, style: TextStyle, slot: f32, room: f32 },
-    Dot,
-}
-
-impl Piece {
-    /// Its width in the readout now (`room` = false) or in the pill's.
-    fn width(&self, room: bool) -> f32 {
-        match self {
-            Piece::Text { slot, room: r, .. } => if room { *r } else { *slot },
-            Piece::Dot => DOT_R * 2.0,
-        }
-    }
-}
-
-/// "144 fps | GPU 97% · 71° | CPU 38%" along one baseline, centred: the
-/// frame rate is a dash until Windows lets Poni read frames and while the
-/// game isn't drawing (dimmer while the one-time OK is outstanding); the
-/// rest comes from the System page's readers.
-fn draw_game(ui: &mut Ui, st: &AppState, body: Rect) {
-    let key = game_key(st);
-    let reading = st.system.latest.as_ref();
-    let big = TextStyle::headline().tabular().color(INK);
-    let value = TextStyle::body().weight(Weight::Semibold).tabular().color(INK);
-    let label = TextStyle::footnote().weight(Weight::Medium).color(palette::TEXT_DIM);
-    let dash = || "\u{2013}".to_string();
-    // Waiting for the one-time OK: the frame rate's slot stays, dimmer.
-    let waiting = st.game.rate.is_none() && !matches!(st.game.access, FpsAccess::Ready | FpsAccess::Unknown | FpsAccess::Checking);
-    let (fps_style, fps_label) = if waiting { (big.color(palette::DISABLED), label.color(palette::DISABLED)) } else { (big, label) };
-    let gpu = reading.and_then(|r| r.gpu.as_ref());
-    let cpu = reading.and_then(|r| r.cpu.as_ref());
-
-    let mut width = |t: &str, ts: &TextStyle| ui.c.measure(t, ts, 400.0).0;
-    let mut number = |v: Option<String>, style: TextStyle, widest: &str| {
-        let room = width(widest, &style);
-        match v {
-            Some(text) => Piece::Text { text, style, slot: room, room },
-            None => Piece::Text { slot: width(&dash(), &style), text: dash(), style, room },
-        }
-    };
-    let fps = number(st.game.rate.map(|r| fmt_fps(r.fps)), fps_style, if key.fps4 { "0000" } else { "000" });
-    let gpu_pct = number(gpu.map(|g| fmt_pct(g.util)), value, "100%");
-    let cpu_pct = number(cpu.map(|c| fmt_pct(c.load)), value, "100%");
-    let temp = gpu.and_then(|g| g.temp_c).zip(key.temp);
-    let temp = temp.map(|(t, hot)| number(Some(format!("{t:.0}\u{b0}")), value, if hot { "000\u{b0}" } else { "00\u{b0}" }));
-    let mut word = |text: &str, style: TextStyle| {
-        let w = ui.c.measure(text, &style, 400.0).0;
-        Piece::Text { text: text.into(), style, slot: w, room: w }
-    };
-    let mut gpu_group = vec![word("GPU", label), gpu_pct];
-    if let Some(t) = temp {
-        gpu_group.extend([Piece::Dot, t]);
-    }
-    let groups = [vec![fps, word("fps", fps_label)], gpu_group, vec![word("CPU", label), cpu_pct]];
-
-    let run = |room: bool| {
-        groups.iter().map(|g| g.iter().map(|p| p.width(room)).sum::<f32>() + (g.len() - 1) as f32 * LABEL_GAP).sum::<f32>()
-            + (groups.len() - 1) as f32 * (2.0 * GAME_GAP + 1.0)
-    };
-    GAME_FIT.with(|f| f.set(Some((key, (run(true) + 2.0 * TEXT_INSET).ceil()))));
-
-    let cy = body.center().y;
-    // Every piece sits on the frame rate's baseline.
-    let baseline = cy + BASELINE_K * big.size;
-    let mut x = (body.center().x - run(false) / 2.0).max(body.x + TEXT_INSET);
-    for (i, group) in groups.iter().enumerate() {
-        if i > 0 {
-            x += GAME_GAP;
-            ui.c.fill_rect(Rect::new(snap(ui, x), snap(ui, cy - DIVIDER_H / 2.0), 1.0, DIVIDER_H), DIVIDER);
-            x += 1.0 + GAME_GAP;
-        }
-        for (j, p) in group.iter().enumerate() {
-            if j > 0 {
-                x += LABEL_GAP;
-            }
-            match p {
-                Piece::Text { text, style, slot, .. } => {
-                    let y = body.y + BASELINE_K * (big.size - style.size);
-                    // Two DIPs of spare room on the left, so rounding never ellipsizes.
-                    ui.c.text(text, Rect::new(x - 2.0, y, slot + 2.0, body.h), &style.right());
-                }
-                // At the middle of the digits' height.
-                Piece::Dot => ui.c.fill_circle(Point::new(x + DOT_R, baseline - 0.35 * value.size), DOT_R, palette::TEXT_DIM),
-            }
-            x += p.width(false);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use poni_core::frames::FrameRate;
     use poni_core::pomodoro::RunState;
     use poni_core::settings::{Settings, Theme};
     use poni_core::store::Store;
-    use poni_core::sysmon::{GpuReading, Reading};
 
     fn state() -> AppState {
         let mut st = AppState::new(Settings::default(), Store::default());
@@ -433,16 +282,10 @@ mod tests {
         st
     }
 
-    fn game(st: &mut AppState, fps: f32, util: f32, temp: Option<f32>) {
-        st.game.rate = Some(FrameRate { fps, frame_ms: 1000.0 / fps, worst_ms: 1000.0 / fps });
-        st.system.latest = Some(Reading { gpu: Some(GpuReading { util, temp_c: temp, ..Default::default() }), ..Default::default() });
-    }
-
     #[test]
     fn every_live_pill_is_a_32_dip_capsule() {
-        let mut st = state();
-        game(&mut st, 144.0, 0.97, Some(71.0));
-        for a in [Activity::Timer, Activity::MediaTimer, Activity::Game] {
+        let st = state();
+        for a in [Activity::Timer, Activity::MediaTimer] {
             let g = geom(a, &st).expect("a Pill size");
             assert_eq!((g.h, g.r), (32.0, 16.0), "{a:?}");
         }
@@ -461,31 +304,10 @@ mod tests {
     }
 
     #[test]
-    fn the_readout_keeps_its_width_while_its_numbers_change() {
-        let mut st = state();
-        game(&mut st, 61.0, 0.42, Some(64.0));
-        let key = game_key(&st);
-        // As if drawn: the width it measured for these slots.
-        GAME_FIT.with(|f| f.set(Some((key, 251.0))));
-        for (fps, util, temp) in [(144.0, 1.0, 71.0), (999.4, 0.0, 99.4), (9.0, 0.97, 30.0)] {
-            game(&mut st, fps, util, Some(temp));
-            assert_eq!(game_key(&st), key);
-            assert_eq!(geom(Activity::Game, &st).unwrap().w, 251.0, "{fps} fps, GPU {util} at {temp} deg");
-        }
-        // Only a fourth frame-rate digit, a GPU at 100 degrees or one without
-        // a temperature changes the slots, and so the width.
-        for (fps, temp) in [(999.6, Some(64.0)), (144.0, Some(99.6)), (144.0, None)] {
-            game(&mut st, fps, 0.5, temp);
-            assert_ne!(game_key(&st), key, "{fps} fps at {temp:?} deg");
-            assert_ne!(geom(Activity::Game, &st).unwrap().w, 251.0);
-        }
-    }
-
-    #[test]
     fn nothing_in_the_live_pills_moves_by_itself() {
         let st = state();
         assert_eq!(is_live(Activity::MediaTimer, &st), Some(false));
-        for a in [Activity::Timer, Activity::Prayer, Activity::Game] {
+        for a in [Activity::Timer, Activity::Prayer] {
             assert_eq!(is_live(a, &st), None, "{a:?}: Classic's answer (no frames) stands");
         }
     }

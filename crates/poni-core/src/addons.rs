@@ -146,9 +146,7 @@ pub const SCRIPT_READER: Addon = Addon {
 /// 0.2.8; an add-on, off, in the versions after it, so the island's own tabs
 /// are the everyday ones. Its code is in the app, so there is nothing to download.
 /// Off, there is no System tab, and its readings never start at rest
-/// (`Settings::system_history` only counts while it is on). Show over games
-/// keeps its own switch: its readout reads the counters while a game is in
-/// front, System on or off.
+/// (`Settings::system_history` only counts while it is on).
 pub const SYSTEM: Addon = Addon {
     id: "system",
     title: "System",

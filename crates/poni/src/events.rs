@@ -152,9 +152,6 @@ pub enum AppEvent {
     /// The System page's latest reading and the minute behind it
     /// (`services::sysmon`, each second while the page is open).
     System(Box<poni_core::sysmon::Monitor>),
-    /// Show over games: whether Windows lets Poni read frames (a check, or
-    /// the one-time OK's outcome).
-    FpsAccess(crate::state::FpsAccess),
     /// Phone drop's server: a phone opened the page, asked, sent, gave up.
     Phone(poni_core::phonedrop::Event),
     /// Paired phones: pairing done, the list changed, files from a phone.

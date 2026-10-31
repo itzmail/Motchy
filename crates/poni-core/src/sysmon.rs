@@ -28,12 +28,10 @@ pub enum Module {
     /// or an estimate from the parts that report their own.
     Power,
     Battery,
-    /// Show over games: the frame rate and load while a game is in front.
-    Games,
 }
 
 impl Module {
-    pub const ALL: [Module; 8] = [Module::Cpu, Module::Gpu, Module::Memory, Module::Drives, Module::Network, Module::Power, Module::Battery, Module::Games];
+    pub const ALL: [Module; 7] = [Module::Cpu, Module::Gpu, Module::Memory, Module::Drives, Module::Network, Module::Power, Module::Battery];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -44,7 +42,6 @@ impl Module {
             Module::Network => "Network",
             Module::Power => "Power",
             Module::Battery => "Battery",
-            Module::Games => "Games",
         }
     }
 }
@@ -418,12 +415,12 @@ pub struct Rest {
     pub saver: bool,
 }
 
-/// Whether the reader takes readings: for the open page or the readout over a
-/// game while someone is there, and for the minute kept while the page is
-/// closed (`background`) unless nobody is there or battery saver is on. When
-/// it stops, the kept minute goes, and the next one starts fresh.
-pub fn reads(open: bool, game: bool, background: bool, rest: Rest) -> bool {
-    !rest.away && (open || game || (background && !rest.saver))
+/// Whether the reader takes readings: for the open page while someone is
+/// there, and for the minute kept while the page is closed (`background`)
+/// unless nobody is there or battery saver is on. When it stops, the kept
+/// minute goes, and the next one starts fresh.
+pub fn reads(open: bool, background: bool, rest: Rest) -> bool {
+    !rest.away && (open || (background && !rest.saver))
 }
 
 // ---------------------------------------------------------------- CPU
@@ -1327,18 +1324,16 @@ mod tests {
         let away = Rest { away: true, saver: false };
         let saver = Rest { away: false, saver: true };
         // The kept minute: read while someone is there, rest when away or on battery saver.
-        assert!(reads(false, false, true, here));
-        assert!(!reads(false, false, true, away));
-        assert!(!reads(false, false, true, saver));
-        assert!(!reads(false, false, true, Rest { away: true, saver: true }));
-        // The open page and the readout over a game: rest only when nobody can see them.
-        for (open, game) in [(true, false), (false, true), (true, true)] {
-            assert!(reads(open, game, false, here));
-            assert!(reads(open, game, false, saver));
-            assert!(!reads(open, game, true, away));
-        }
+        assert!(reads(false, true, here));
+        assert!(!reads(false, true, away));
+        assert!(!reads(false, true, saver));
+        assert!(!reads(false, true, Rest { away: true, saver: true }));
+        // The open page: rests only when nobody can see it.
+        assert!(reads(true, false, here));
+        assert!(reads(true, false, saver));
+        assert!(!reads(true, true, away));
         // Nothing open and no history kept: never.
-        assert!(!reads(false, false, false, here));
+        assert!(!reads(false, false, here));
     }
 
     #[test]

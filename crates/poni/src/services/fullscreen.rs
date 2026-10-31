@@ -29,7 +29,7 @@ use crate::events::{AppEvent, EventSink, WM_APP_APPBAR};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use windows::core::{w, PCWSTR};
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::{E_UNEXPECTED, HMODULE, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{
@@ -590,32 +590,6 @@ fn is_cloaked(hwnd: HWND) -> bool {
         )
     };
     ok.is_ok() && cloaked != 0
-}
-
-/// The process of the window that makes the island's monitor full screen
-/// (the game, under Show over games). UI thread only; None when nothing does.
-pub fn fullscreen_pid() -> Option<u32> {
-    let w = current()?;
-    if !w.fullscreen.get() {
-        return None;
-    }
-    let hwnd = w.decided.get();
-    if hwnd.is_invalid() {
-        return None;
-    }
-    // A Microsoft Store game's frame belongs to Application Frame Host; the
-    // game's own process owns the core window inside it.
-    let hwnd = if class_name(hwnd) == "ApplicationFrameWindow" {
-        match unsafe { FindWindowExW(hwnd, HWND::default(), w!("Windows.UI.Core.CoreWindow"), PCWSTR::null()) } {
-            Ok(core) if !core.is_invalid() => core,
-            _ => hwnd,
-        }
-    } else {
-        hwnd
-    };
-    let mut pid = 0u32;
-    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-    (pid != 0 && pid != w.pid).then_some(pid)
 }
 
 /// The class of the first window above the island in the z-order that

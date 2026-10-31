@@ -2234,7 +2234,7 @@ impl App {
                         self.prayer_countdown_ok();
                     } else {
                         // Clicking a notice jumps to its page (a new version's
-                        // may be waiting under a volume change or a game's readout).
+                        // may be waiting under a volume change).
                         let shown = self.mode == Mode::Notice;
                         if let Some(n) = self.st.notice.take_if(|_| shown) {
                             match n.action {
@@ -2644,8 +2644,6 @@ impl App {
                         services::thumbs::app_icon_async(p, pages::system::icon_px(self.gfx.scale()), self.sink.clone());
                     }
                 }
-                // Show over games reads Windows' frame log; the Mac has no Games view.
-                Command::CheckFps | Command::AllowFps => {}
                 Command::SetPinned(b) => {
                     self.st.pinned = b;
                     if !b {

@@ -244,8 +244,6 @@ pub enum Key {
     Width,
     Display,
     Fullscreen,
-    GameStats,
-    GamePeek,
     Lyrics,
     MediaActivity,
     LyricsOffset,
@@ -419,16 +417,12 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
             ]
         }
         Section::Island => {
-            // The Mac's island goes where the notch is; the game readout is Windows'.
+            // The Mac's island goes where the notch is.
             let mut shows = Vec::new();
             if cfg!(windows) {
                 shows.push(item(Key::Display, "Display", Some("The screen the island hangs on"), Ctl::Choice(names(&DISPLAYS), chosen(&DISPLAYS, s.monitor))));
             }
             shows.push(item(Key::Fullscreen, "In full-screen apps", Some("Games and videos that fill the screen"), Ctl::Choice(names(&FULLSCREEN), chosen(&FULLSCREEN, s.hide_in_fullscreen))));
-            if cfg!(windows) {
-                shows.push(switch(Key::GameStats, "Show FPS, GPU and CPU over games", Some("Keeps the island on top of full-screen apps"), s.game_stats));
-                shows.push(switch(Key::GamePeek, "Only for a few seconds", Some("Then the island hides and adds no delay to the game"), s.game_peek));
-            }
             vec![
                 Block::Group(
                     Some("Opening and closing"),
@@ -603,8 +597,6 @@ pub fn apply(st: &mut AppState, key: Key, act: Act) {
             Act::Pick(i) if i < FULLSCREEN.len() => s.hide_in_fullscreen = FULLSCREEN[i].0,
             _ => return,
         },
-        Key::GameStats => s.game_stats = !s.game_stats,
-        Key::GamePeek => s.game_peek = !s.game_peek,
         Key::Lyrics => s.lyrics = !s.lyrics,
         Key::MediaActivity => s.show_media_activity = !s.show_media_activity,
         // + shows the lines later, as people hear a late line.
