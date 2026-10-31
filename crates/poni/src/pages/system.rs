@@ -12,10 +12,9 @@
 //! differently (swap, Low Power Mode, the GPU's renderer and tiler), the
 //! Mac's page says it its way.
 //!
-//! On a desktop, Power is the whole PC's draw: its power supply's own
-//! reading when it reports over USB, else an estimate (`poni_core::power`),
-//! split into the CPU, the graphics card and the rest, with the source on
-//! the right. On a Mac without a battery it's the whole Mac's draw from its
+//! On a desktop, Power is the whole PC's draw, an estimate
+//! (`poni_core::power`), split into the CPU, the graphics card and the rest,
+//! with where the number comes from on the right. On a Mac without a battery it's the whole Mac's draw from its
 //! own sensor, which macOS doesn't split by part.
 
 use crate::commands::Command;
@@ -706,73 +705,35 @@ fn draw_power(ui: &mut Ui, st: &mut AppState, p: &PowerReading, r: &Reading, h: 
         None if in_cpu => "In the CPU".into(),
         None => PLACEHOLDER.into(),
     };
-    let rest_w = if p.estimated() { format!("about {}", fmt_w(p.rest_w)) } else { fmt_w(p.rest_w) };
+    let rest_w = format!("about {}", fmt_w(p.rest_w));
     let rows = [
         Row::dot(CPU_W_C, "CPU", p.cpu_w.map_or_else(|| PLACEHOLDER.into(), fmt_w)),
         Row::dot(GPU_W_C, "Graphics card", gpu),
         Row::dot(REST_W_C, "Rest of the PC", rest_w),
-        Row::plain(if p.estimated() { "Whole PC, estimated" } else { "Whole PC" }, fmt_w(p.total_w)),
+        Row::plain("Whole PC, estimated", fmt_w(p.total_w)),
     ];
     details(ui, rest, "WHERE IT GOES", &rows);
 
-    // The minute, and the power supply's outputs (or the shares) under it.
-    let rails = p.psu.as_ref().map(|s| s.rails.as_slice()).filter(|r| !r.is_empty());
-    let (chart, sub) = history_column(ui, cols.mid, "POWER HISTORY", if rails.is_some() { "OUTPUTS" } else { "SHARE" });
+    // The minute, and the shares under it.
+    let (chart, sub) = history_column(ui, cols.mid, "POWER HISTORY", "SHARE");
     chart_box(ui, chart);
     let top = watts_ceiling(h.power.max());
     plot(ui, &h.power, top, accent, chart.inset(1.0, 1.0), Fill::Gradient);
     ui.c.text(&fmt_w(top), Rect::new(chart.x + 7.0, chart.y + 3.0, 60.0, 14.0), &TextStyle::caption().tabular().color(palette::TEXT_FAINT));
-    match rails {
-        Some(rails) => {
-            let sum: f32 = rails.iter().map(|r| r.watts()).sum::<f32>().max(0.1);
-            let names: Vec<String> = rails.iter().map(|r| format!("{} V", fmt_volts(r.nominal))).collect();
-            let bars: Vec<(f32, Color, &str)> = rails.iter().zip(&names).map(|(r, n)| (r.watts() / sum, accent, n.as_str())).collect();
-            labelled_bars(ui, sub, &bars);
-        }
-        None => labelled_bars(
-            ui,
-            sub,
-            &[(share(p.cpu_w.unwrap_or(0.0)), CPU_W_C, "CPU"), (share(p.gpu_w.unwrap_or(0.0)), GPU_W_C, "Graphics"), (share(p.rest_w), REST_W_C, "Rest")],
-        ),
-    }
+    labelled_bars(
+        ui,
+        sub,
+        &[(share(p.cpu_w.unwrap_or(0.0)), CPU_W_C, "CPU"), (share(p.gpu_w.unwrap_or(0.0)), GPU_W_C, "Graphics"), (share(p.rest_w), REST_W_C, "Rest")],
+    );
 
     // Where the number comes from.
     let (head, rest) = cols.top.split_top(SEP_H);
-    separator(ui, head, "POWER SUPPLY");
+    separator(ui, head, "ESTIMATE");
     let name_st = TextStyle::footnote().weight(Weight::Semibold).wrap().top().line_spacing(1.25);
     let (name_r, rest) = rest.split_top(36.0);
-    match &p.psu {
-        Some(s) => {
-            ui.c.text(&s.name, name_r.inset(0.0, 2.0), &name_st);
-            let mut rows = Vec::new();
-            if let Some(w) = s.in_w {
-                rows.push(Row::plain("From the wall", fmt_w(w)));
-            }
-            if let Some(e) = s.efficiency {
-                rows.push(Row::plain("Efficiency", fmt_pct(e)));
-            }
-            if let Some(v) = s.mains_v {
-                rows.push(Row::plain("Mains", format!("{v:.0} V")));
-            }
-            if let Some(t) = s.temp_c {
-                rows.push(Row::plain("Temperature", format!("{t:.0}\u{b0}C")));
-            }
-            if let Some(rpm) = s.fan_rpm {
-                rows.push(Row::plain("Fan", if rpm == 0 { "Stopped".into() } else { format!("{rpm} RPM") }));
-            }
-            for (row, rect) in rows.iter().zip(stack(rest, DETAIL_H)) {
-                row.draw(ui, rect);
-            }
-        }
-        None => {
-            ui.c.text("Doesn't report", name_r.inset(0.0, 2.0), &name_st.color(palette::TEXT_DIM));
-            let note = format!(
-                "So this adds about {:.0} W for the board, memory, drives and fans to what the CPU and the graphics card report. Corsair HXi and RMi, and MSI's Ai power supplies, report the real number over USB.",
-                REST_W
-            );
-            ui.c.text(&note, rest.inset(0.0, 1.0), &TextStyle::caption().color(palette::TEXT_DIM).wrap().top().line_spacing(1.25));
-        }
-    }
+    ui.c.text("Adds up what reports", name_r.inset(0.0, 2.0), &name_st.color(palette::TEXT_DIM));
+    let note = format!("About {:.0} W for the board, memory, drives and fans, added to what the CPU and the graphics card report.", REST_W);
+    ui.c.text(&note, rest.inset(0.0, 1.0), &TextStyle::caption().color(palette::TEXT_DIM).wrap().top().line_spacing(1.25));
 }
 
 /// The Mac's Power: the whole Mac's draw as its own sensor (the SMC) reads
@@ -816,14 +777,6 @@ fn draw_power_mac(ui: &mut Ui, st: &mut AppState, p: &PowerReading, r: &Reading,
 }
 
 /// "12", "5", "3.3".
-fn fmt_volts(v: f32) -> String {
-    if v.fract().abs() < 0.05 {
-        format!("{v:.0}")
-    } else {
-        format!("{v:.1}")
-    }
-}
-
 // ------------------------------------------------------------------ dashboard
 
 /// One of the smaller rings beside the centre one: how full, the value

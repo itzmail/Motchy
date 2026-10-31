@@ -22,7 +22,6 @@ pub mod oyenza;
 pub mod pairdrop;
 pub mod phonedrop;
 pub mod power;
-pub mod psu;
 pub mod recorder;
 pub mod secret;
 pub mod sound;

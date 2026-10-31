@@ -1271,7 +1271,7 @@ fn sample_system(desktop: bool) -> Monitor {
             // What the office Mac Studio's SMC read at rest (7.8-8.2 W), rising with the graphics.
             let w = if last { 8.1 } else { 7.4 + 24.0 * (gpu - 0.2).max(0.0) + 3.0 * cpu };
             r.battery = None;
-            r.power = Some(PowerReading { total_w: w, cpu_w: None, gpu_w: None, rest_w: w, psu: None });
+            r.power = Some(PowerReading { total_w: w, cpu_w: None, gpu_w: None, rest_w: w });
         }
         m.push(r);
     }

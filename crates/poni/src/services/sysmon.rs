@@ -22,8 +22,7 @@
 //! * Drives, network and battery: fixed drives' space and the physical
 //!   disks' counters; `GetIfTable2` per adapter plus the route's adapter,
 //!   address and link speed; `GetSystemPowerStatus` and the battery driver.
-//! * Power, on a desktop while the page is open: a power supply that
-//!   reports over USB (`services::psu`), else an estimate from the CPU
+//! * Power, on a desktop while the page is open: an estimate from the CPU
 //!   package's energy counter and the graphics card's own reading (NVML,
 //!   the NVIDIA driver's library), as `poni_core::power` adds them up. Both
 //!   readers open with the page and close with it.
@@ -118,8 +117,6 @@ const GPU_MISSES: u32 = 3;
 /// The PCI vendor id DXGI gives Microsoft's software and basic adapters.
 const MICROSOFT_VENDOR: u32 = 0x1414;
 const NVIDIA_VENDOR: u32 = 0x10de;
-/// Unanswered PSU readings in a row before the page stops asking it.
-const PSU_MISSES: u32 = 3;
 /// This much dedicated memory or less is a GPU built into the processor (its
 /// slice of RAM, often exactly 512 MB), when the segments don't say.
 const INTEGRATED_UP_TO: u64 = 512 * 1024 * 1024;
@@ -369,11 +366,6 @@ struct Sampler {
     /// The thermal zone reading, its lowest and highest so far (placeholders never move).
     zone: Option<(f32, f32, f32)>,
     slow_at: Option<Instant>,
-    /// A power supply that reports over USB, open while the page is, and
-    /// whether this opening looked for one (once per opening).
-    psu: Option<super::psu::Psu>,
-    psu_looked: bool,
-    psu_misses: u32,
 }
 
 impl Sampler {
@@ -405,9 +397,6 @@ impl Sampler {
             compressed: 0,
             zone: None,
             slow_at: None,
-            psu: None,
-            psu_looked: false,
-            psu_misses: 0,
         };
         // Baselines for everything measured between two samples.
         s.cores = s.core_times();
@@ -442,10 +431,6 @@ impl Sampler {
         // The power readers live while the page is open.
         if let Some(g) = self.gpu.as_mut() {
             g.page_open(full);
-        }
-        if !full {
-            self.psu = None;
-            self.psu_looked = false;
         }
         let pdh = self.pdh.as_ref().filter(|p| p.collect(full));
         let counters = pdh.map(|p| p.read(full)).unwrap_or_default();
@@ -543,31 +528,11 @@ impl Sampler {
         Reading { cpu, gpu, memory, drives: self.drive_list.clone(), disk, network, battery, power, top_cpu, top_memory, top_io }
     }
 
-    /// The whole PC's draw: what a power supply that reports over USB says,
-    /// else the estimate from the CPU package and the graphics card.
+    /// The whole PC's draw: the estimate from the CPU package and the
+    /// graphics card.
     fn power_reading(&mut self, cpu: Option<&CpuReading>, gpu: Option<&GpuReading>) -> Option<PowerReading> {
         let cpu_w = cpu.and_then(|c| c.power_w);
         let gpu_w = gpu.and_then(|g| g.power_w);
-        if !self.psu_looked {
-            self.psu_looked = true;
-            self.psu_misses = 0;
-            self.psu = super::psu::Psu::find();
-        }
-        if let Some(psu) = self.psu.as_mut() {
-            match psu.read() {
-                Some(r) => {
-                    self.psu_misses = 0;
-                    return Some(PowerReading::from_psu(r, cpu_w, gpu_w));
-                }
-                None => {
-                    self.psu_misses += 1;
-                    if self.psu_misses >= PSU_MISSES {
-                        warn_once(1 << 12, "power supply stopped answering; estimating until the page opens again");
-                        self.psu = None;
-                    }
-                }
-            }
-        }
         PowerReading::estimate(cpu_w, gpu_w, gpu.is_some_and(|g| !g.integrated))
     }
 

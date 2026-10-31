@@ -52,7 +52,7 @@ use poni_core::oyenza::{Activity, Bill, Day, DayPick, Saved, Seen, Txn, WalletRe
 use poni_core::phonedrop::QrMatrix;
 use poni_core::prayer::{PlaceList, World};
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
-use poni_core::power::{PowerReading, PsuReading, Rail};
+use poni_core::power::PowerReading;
 use poni_core::settings::{IdleStyle, Theme};
 use poni_core::shelf::ShelfItem;
 use poni_core::sysmon::{
@@ -273,38 +273,14 @@ fn fake_system(scene: Scene) -> Monitor {
         let down = if last { 1.2 * MIB } else { 0.08 * MIB + burst(5, 14, 3.4 * MIB) + burst(46, 10, 1.6 * MIB) };
         let up = if last { 0.082 * MIB } else { 0.02 * MIB + burst(25, 8, 0.6 * MIB) };
         let sample = Sample { cpu, gpu, mem: 0.6 + 0.004 * (t / 6.0).sin(), read, write, down, up, t };
-        let desktop = matches!(scene, Scene::SystemMemory | Scene::SystemPower | Scene::SystemPowerEstimate);
+        let desktop = matches!(scene, Scene::SystemMemory | Scene::SystemPowerEstimate);
         let mut r = sample_reading(!desktop, &sample);
-        if matches!(scene, Scene::SystemPower | Scene::SystemPowerEstimate) {
-            r.power = sample_power(&r, scene == Scene::SystemPower, t);
+        if scene == Scene::SystemPowerEstimate {
+            r.power = PowerReading::estimate(r.cpu.as_ref().and_then(|c| c.power_w), r.gpu.as_ref().and_then(|g| g.power_w), true);
         }
         m.push(r);
     }
     m
-}
-
-/// The desktop's power that second: what the power supply reports (its
-/// output a little above the parts' sum, as the board, memory and fans add
-/// theirs), or the estimate.
-fn sample_power(r: &Reading, psu: bool, t: f32) -> Option<PowerReading> {
-    let cpu_w = r.cpu.as_ref().and_then(|c| c.power_w);
-    let gpu_w = r.gpu.as_ref().and_then(|g| g.power_w);
-    if !psu {
-        return PowerReading::estimate(cpu_w, gpu_w, true);
-    }
-    let out_w = cpu_w? + gpu_w? + 46.0 + 2.0 * (t / 2.9).sin();
-    let rail = |nominal: f32, volts: f32, amps: f32| Rail { nominal, volts, amps };
-    let reading = PsuReading {
-        name: "MSI MEG Ai1600T".into(),
-        out_w,
-        in_w: Some(out_w / 0.93),
-        efficiency: Some(0.93),
-        mains_v: Some(229.6),
-        temp_c: Some(38.5),
-        fan_rpm: Some(0),
-        rails: vec![rail(12.0, 12.06, (out_w - 14.0) / 12.06), rail(5.0, 5.02, 1.9), rail(3.3, 3.31, 1.4)],
-    };
-    Some(PowerReading::from_psu(reading, cpu_w, gpu_w))
 }
 
 /// One second of the sample minute.
@@ -920,9 +896,7 @@ enum Scene {
     ScriptReading,
     /// The same reading with Oyenza Studio Recorder installed: Record shows.
     ScriptRecorder,
-    /// System page on a desktop, Power: its power supply reports over USB.
-    SystemPower,
-    /// ...and a desktop whose power supply doesn't: the estimate.
+    /// System page on a desktop, Power: the estimate.
     SystemPowerEstimate,
     /// A maximized window under the island, Step aside on (no longer offered): the
     /// clock waits out of the way, an invisible strip at the top edge.
@@ -1046,7 +1020,7 @@ const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll
 Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
 No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
 
-const SCENES: [Scene; 107] = [
+const SCENES: [Scene; 106] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -1119,7 +1093,6 @@ const SCENES: [Scene; 107] = [
     // ...and with the recorder installed (Record by Paste).
     Scene::ScriptRecorder,
     // The whole PC's power: read from the power supply, then estimated.
-    Scene::SystemPower,
     Scene::SystemPowerEstimate,
     // A maximized window under the island: what rests steps aside, what
     // happens still shows. Then the Settings page with Stay picked.
@@ -1247,7 +1220,6 @@ impl Scene {
             Scene::LowBatteryHud => "low-battery-hud".into(),
             Scene::ScriptReading => "page-script-reading".into(),
             Scene::ScriptRecorder => "page-script-recorder".into(),
-            Scene::SystemPower => "page-system-power".into(),
             Scene::SystemPowerEstimate => "page-system-power-estimate".into(),
             Scene::AsideIdle => "aside-idle".into(),
             Scene::AsideLyric => "aside-media-lyric".into(),
@@ -1307,7 +1279,6 @@ impl Scene {
             | Scene::SystemBattery
             | Scene::SystemWaiting
             | Scene::SystemGpu
-            | Scene::SystemPower
             | Scene::SystemPowerEstimate => Some(PageKind::System),
             Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
@@ -2577,7 +2548,7 @@ impl SelfTest {
             Scene::SystemNetwork => Module::Network,
             Scene::SystemBattery => Module::Battery,
             Scene::SystemGpu => Module::Gpu,
-            Scene::SystemPower | Scene::SystemPowerEstimate => Module::Power,
+            Scene::SystemPowerEstimate => Module::Power,
             _ => Module::Cpu,
         };
         for (path, rgb) in SAMPLE_ICONS {

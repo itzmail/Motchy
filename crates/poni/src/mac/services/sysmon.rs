@@ -579,7 +579,7 @@ impl Sampler {
             pinfo!("system: the SMC's whole-Mac power: {}", w.map_or("none".to_string(), |w| format!("{w:.1} W")));
         }
         let w = self.smc.as_ref()?.float(super::smc::SYSTEM_TOTAL).filter(|w| w.is_finite() && *w > 0.0)?;
-        Some(PowerReading { total_w: w, cpu_w: None, gpu_w: None, rest_w: w, psu: None })
+        Some(PowerReading { total_w: w, cpu_w: None, gpu_w: None, rest_w: w })
     }
 
     // ------------------------------------------------------------ CPU
