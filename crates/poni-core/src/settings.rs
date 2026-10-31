@@ -1,6 +1,5 @@
 //! User settings, stored as JSON next to the data store.
 
-use crate::ielts::Spice;
 use crate::pomodoro::PomodoroConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -89,7 +88,7 @@ pub struct Settings {
     pub hud_power: bool,
     pub hud_bluetooth: bool,
     pub sounds: bool,
-    /// Page shown first when expanding ("media", "today", "health", "shelf", "tasks", "focus", "ai", "oyenza").
+    /// Page shown first when expanding ("media", "today", "shelf", "tasks", "focus", "ai", "oyenza").
     pub start_page: String,
     /// Remember the last page instead of `start_page`.
     pub remember_page: bool,
@@ -128,8 +127,6 @@ pub struct Settings {
     /// The Notifications add-on's choices: which apps the island shows, and
     /// whether who it's from and the message show at once.
     pub notifications: crate::notifications::NotificationSettings,
-    /// How Oyen talks on the IELTS page (Sopan, Gaul or Ngegas, the default).
-    pub ielts_spice: Spice,
 }
 
 /// What the AI tab shows and whether it gives heads-up notices.
@@ -248,7 +245,6 @@ impl Default for Settings {
             usage: UsageSettings::default(),
             record: RecordSettings::default(),
             notifications: crate::notifications::NotificationSettings::default(),
-            ielts_spice: Spice::default(),
         }
     }
 }
@@ -547,17 +543,6 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"hidden_tabs":["today","future"]}"#).unwrap();
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.hidden_tabs, ["today", "future"]);
-    }
-
-    #[test]
-    fn ielts_talks_ngegas_until_told_otherwise() {
-        assert_eq!(Settings::default().ielts_spice, Spice::Ngegas);
-        let s: Settings = serde_json::from_str(r#"{"ielts_spice":"gaul"}"#).unwrap();
-        assert_eq!(s.ielts_spice, Spice::Gaul);
-        // A spice from a newer version is the default.
-        let s: Settings = serde_json::from_str(r#"{"ielts_spice":"pedas"}"#).unwrap();
-        assert_eq!(s.ielts_spice, Spice::Ngegas);
-        assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""ielts_spice":"ngegas""#));
     }
 
     #[test]

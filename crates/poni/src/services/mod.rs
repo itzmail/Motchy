@@ -16,7 +16,6 @@ pub mod downloader;
 #[cfg(test)]
 mod downloader_live;
 pub mod http;
-pub mod ielts;
 pub mod imaging;
 pub mod location;
 pub mod lyrics;
@@ -35,12 +34,10 @@ mod romanize_compare;
 pub mod secret;
 pub mod sound;
 pub mod notifications;
-pub mod stocks;
 pub mod sysmon;
 pub mod sysstats;
 pub mod update;
 pub mod usage;
-pub mod voice;
 
 use crate::commands::{MediaCmd, OyenzaCmd, UsageCmd};
 use crate::events::EventSink;
@@ -58,8 +55,6 @@ pub struct Services {
     oyenza: Option<oyenza::OyenzaService>,
     pairdrop: Option<pairdrop::PairDropService>,
     addons: Option<addons::AddonService>,
-    /// Started the first time the Stocks page opens ([`Services::stocks_watch`]).
-    stocks: std::cell::OnceCell<Option<stocks::StocksService>>,
     /// Started at the first download ([`Services::download`]).
     downloader: std::cell::OnceCell<Option<downloader::DownloaderService>>,
     /// Started the first time the AI tab opens or its notices are on
@@ -104,7 +99,7 @@ impl Services {
             .map(|a| a.id)
             .collect();
         let addons = started("add-ons", addons::AddonService::start(sink.clone(), on));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, pairdrop, addons, stocks: std::cell::OnceCell::new(), usage: std::cell::OnceCell::new(), downloader: std::cell::OnceCell::new(), sink: sink.clone() }
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, pairdrop, addons, usage: std::cell::OnceCell::new(), downloader: std::cell::OnceCell::new(), sink: sink.clone() }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -117,17 +112,6 @@ impl Services {
     /// False when that thread couldn't start.
     pub fn run_job(&self, job: addons::Job) -> bool {
         self.addons.as_ref().map(|a| a.run(job)).is_some()
-    }
-
-    /// What the Stocks page wants (`pages::stocks::watch`). Its thread starts
-    /// the first time the page opens and sleeps whenever it is closed.
-    pub fn stocks_watch(&self, w: stocks::Watch) {
-        if !w.open && self.stocks.get().is_none() {
-            return;
-        }
-        if let Some(s) = self.stocks.get_or_init(|| started("stocks", stocks::StocksService::start(self.sink.clone()))) {
-            s.set_watch(w);
-        }
     }
 
     /// Run yt-dlp for `req` (the Downloader add-on's tools are in place).

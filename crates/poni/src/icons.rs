@@ -21,7 +21,6 @@ pub enum Icon {
     Lyrics,
     Timer,
     Coffee,
-    Steps,
     Tray,
     ListChecks,
     Check,
@@ -88,10 +87,6 @@ pub enum Icon {
     Download,
     /// Record (Oyenza Studio Recorder): a dot that fits inside `Circle`.
     Record,
-    /// The Stocks tab: a line climbing to the right, its arrowhead at the end.
-    Stocks,
-    /// A magnifying glass: the Stocks page's search.
-    Search,
     /// The Record tab: a ring with the record dot inside.
     Recorder,
     /// The Record page's targets: a display, an app window, a dragged-out area.
@@ -130,9 +125,6 @@ pub enum Icon {
     /// The Oyenza mark (Oyen's head): Oyenza Inference. Not the Oyenza tab,
     /// which is `Wallet`.
     Oyenza,
-    /// A padlock: an IELTS level not open yet. (The IELTS tab and its answer
-    /// button use `Mic`, the Record page's microphone.)
-    Lock,
 }
 
 /// A service's mark, for its card on the AI tab and its notices.
@@ -204,14 +196,6 @@ pub fn parts(icon: Icon) -> &'static [Part] {
             s("M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"),
             s("M8.5 3.5V6"),
             s("M12 3.5V6"),
-        ],
-        // Two shoe prints. Each outline starts at a corner of its flat bottom:
-        // closing in the middle of a curve leaves a tiny segment whose join spikes.
-        Steps => p![
-            s("M5.2 12.5C4.8 11.1 4 9.7 4 7.6C4 4.8 5.5 2.5 7.5 2.5C9.5 2.5 11 4.8 11 7.6C11 9.7 10.2 11.1 9.8 12.5Z"),
-            s("M5.5 15H9.5V15.6A2 2 0 0 1 5.5 15.6Z"),
-            s("M14.2 17C13.8 15.6 13 14.2 13 12.1C13 9.3 14.5 7 16.5 7C18.5 7 20 9.3 20 12.1C20 14.2 19.2 15.6 18.8 17Z"),
-            s("M14.5 19.5H18.5V20.1A2 2 0 0 1 14.5 20.1Z"),
         ],
         Tray => p![
             s("M4 13l2.4-7.2a1.6 1.6 0 0 1 1.5-1.1h8.2a1.6 1.6 0 0 1 1.5 1.1L20 13"),
@@ -347,8 +331,6 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         Camera => p![s("M4 7h9.5A1.5 1.5 0 0 1 15 8.5v7a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5v-7A1.5 1.5 0 0 1 4 7z"), s("M15 10.5l5-3v9l-5-3")],
         Mic => p![s("M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"), s("M5.5 11a6.5 6.5 0 0 0 13 0"), s("M12 17.5V21")],
         Download => p![s("M12 4v10.5"), s("M7.5 10L12 14.5 16.5 10"), s("M4.5 16v2.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V16")],
-        Stocks => p![s("M3.5 17.5l5.5-5.5 4 4 7.5-7.5"), s("M15 8.5h5.5V14")],
-        Search => p![s("M4.5 10.5a6 6 0 1 0 12 0a6 6 0 1 0-12 0"), s("M15 15l4.5 4.5")],
         Bell => p![s("M6 11a6 6 0 0 1 12 0v4.2l1.6 2.3H4.4L6 15.2z"), s("M10 20.3a2.2 2.2 0 0 0 4 0")],
         Notes => p![
             s("M6.5 3h11A1.5 1.5 0 0 1 19 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-15A1.5 1.5 0 0 1 6.5 3z"),
@@ -377,10 +359,6 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         MiniMax => p![f(MINIMAX)],
         OpenRouter => p![f(OPENROUTER)],
         Oyenza => p![f(OYENZA)],
-        Lock => p![
-            s("M6.5 11h11A1.5 1.5 0 0 1 19 12.5v6a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5v-6A1.5 1.5 0 0 1 6.5 11z"),
-            s("M8 11V8a4 4 0 0 1 8 0v3"),
-        ],
     }
 }
 
@@ -475,7 +453,7 @@ mod tests {
     use super::*;
 
     const ALL: &[Icon] = &[
-        Icon::Play, Icon::Pause, Icon::Next, Icon::Prev, Icon::Music, Icon::Lyrics, Icon::Timer, Icon::Coffee, Icon::Steps,
+        Icon::Play, Icon::Pause, Icon::Next, Icon::Prev, Icon::Music, Icon::Lyrics, Icon::Timer, Icon::Coffee,
         Icon::Tray, Icon::ListChecks, Icon::Check, Icon::CheckCircle, Icon::Circle, Icon::Plus, Icon::Minus,
         Icon::Close, Icon::Clipboard, Icon::Copy, Icon::Calendar, Icon::Clock, Icon::Cpu, Icon::Memory, Icon::Disk,
         Icon::Battery, Icon::Bolt, Icon::Bluetooth, Icon::Headphones, Icon::Volume, Icon::VolumeLow, Icon::VolumeMute,
@@ -483,11 +461,9 @@ mod tests {
         Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::MoneyOut, Icon::Transfer, Icon::Card, Icon::Wallet,
         Icon::Unlink, Icon::Gear,
         Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop, Icon::Script, Icon::Record, Icon::Download,
-        Icon::Stocks, Icon::Search,
         Icon::Recorder, Icon::Screen, Icon::AppWindow, Icon::Area, Icon::Camera, Icon::Mic, Icon::Bell, Icon::Notes, Icon::Message,
         Icon::Ai, Icon::OpenAi, Icon::Claude, Icon::OpenCode, Icon::Gemini, Icon::Cursor, Icon::Copilot, Icon::Kimi, Icon::Zai,
         Icon::MiniMax, Icon::OpenRouter, Icon::Oyenza,
-        Icon::Lock,
     ];
 
     #[test]

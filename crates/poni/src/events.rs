@@ -5,7 +5,6 @@
 
 use crate::gfx::Image;
 use crate::state::{MediaSession, PowerState, SysStats};
-use poni_core::health::HealthSnapshot;
 use poni_core::lrc::Lyrics;
 use poni_core::agenda;
 use poni_core::oyenza::{Activity, Arrival, Bill, Saved};
@@ -103,9 +102,6 @@ pub enum OyenzaEvent {
     ActivityChecked,
     /// Bills due in the next 30 days, and the server's today (YYYY-MM-DD).
     Bills { today: String, bills: Vec<Bill> },
-    /// The steps the phone sent, for the Health page; None: none to show (off in
-    /// Oyenza on the phone, or a server from before steps).
-    Health(Option<HealthSnapshot>),
     /// The day for the Today page, from the apps switched on in oyenza.app (asked
     /// while the page is on screen).
     Day(agenda::Answer),
@@ -176,8 +172,6 @@ pub enum AppEvent {
     Located(crate::services::location::Located),
     /// One of prayer times' online city files (`services::cities`).
     Cities { file: String, got: Result<poni_core::prayer::World, String> },
-    /// The Stocks page's prices, names and years (`services::stocks`).
-    Stocks(crate::services::stocks::StocksEvent),
     /// One of yt-dlp's lines for download `id` (`services::downloader`).
     Download { id: u64, line: poni_core::ytdlp::Line },
     /// yt-dlp for download `id` ended (`ok`: it exited with 0).
@@ -196,12 +190,6 @@ pub enum AppEvent {
     Log(String),
     /// The Glass theme's screen copy has new pixels (or stopped).
     Backdrop,
-    /// The IELTS worker's answer (`services::ielts`).
-    Ielts(Box<poni_core::ielts::Reply>),
-    /// Oyen's clip finished playing, or couldn't play on (`services::voice`).
-    VoiceEnded,
-    /// The microphone stopped mid-answer (`services::mic`): why, for the log.
-    MicFailed(String),
     /// The meeting being handed over, as it goes (`services::notes`).
     Notes(Box<poni_core::notes::Reply>),
     /// The meeting's recording stopped by itself: the longest meeting taken,

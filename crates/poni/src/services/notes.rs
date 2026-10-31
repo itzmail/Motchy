@@ -32,8 +32,8 @@ use crate::services::mic::MicError;
 use crate::services::mic::{self, Device};
 use poni_core::datetime::LocalDateTime;
 #[cfg(windows)]
-use poni_core::ielts::peak;
-use poni_core::ielts::WavWriter;
+use poni_core::audio::peak;
+use poni_core::audio::WavWriter;
 use poni_core::notes::{self, CaptureIssue, Lang, Mixer, Problem, Reply, Saved, View, PART_SECS, RATE};
 use poni_core::oyenza;
 use std::path::{Path, PathBuf};

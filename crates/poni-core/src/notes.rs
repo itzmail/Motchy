@@ -14,7 +14,7 @@ use crate::datetime::{LocalDateTime, MONTH_SHORT, WEEKDAY_SHORT};
 use serde_json::Value;
 use std::collections::VecDeque;
 
-pub use crate::ielts::RATE;
+pub use crate::audio::RATE;
 
 pub const BASE: &str = crate::oyenza::API;
 pub const PATH: &str = "/island/notes";

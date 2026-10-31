@@ -184,43 +184,6 @@ pub const SYSTEM: Addon = Addon {
     pro: false,
 };
 
-/// Health: the Health page, today's steps against the goal and the week,
-/// which Oyenza on the phone sends once signed in (Apple Health or Health
-/// Connect). A tab for everyone up to 0.2.8; an add-on, off, in the versions
-/// after it, like System. Its code is in the app, so there is nothing to
-/// download. Off, there is no Health tab and the Oyenza worker never asks
-/// for the steps.
-pub const HEALTH: Addon = Addon {
-    id: "health",
-    title: "Health",
-    blurb: "Your steps from Oyenza on your phone: today against your goal, and your week.",
-    mac_blurb: None,
-    tag: "",
-    files: &[],
-    pro: false,
-};
-
-/// Stocks: the Stocks page, the IHSG and up to ten IDX stocks with their
-/// day's line, from oyenza.trade (`poni_core::stocks`). Its code is in the
-/// app, so there is nothing to download. Off, there is no Stocks tab; on, the
-/// prices are asked for only while its page is on screen.
-pub const STOCKS: Addon = Addon {
-    id: "stocks",
-    title: "Stocks",
-    blurb: "The IHSG and up to 10 IDX stocks from oyenza.trade, 10 minutes behind IDX.",
-    mac_blurb: None,
-    tag: "",
-    files: &[],
-    pro: false,
-};
-
-/// Notifications (Windows): other apps' notifications in the island, from
-/// the apps the person picks on its page (WhatsApp, Telegram and Phone Link
-/// to begin with), read through Windows' notification listener
-/// (`poni_core::notifications`). Its code is in the app, so there is nothing
-/// to download. Off, there is no Notifications tab and nothing listens.
-/// Windows lets only an app with a package identity read notifications, so
-/// it works in the Microsoft Store copy; the Mac has no way to read them.
 pub const NOTIFICATIONS: Addon = Addon {
     id: "notifications",
     title: "Notifications",
@@ -321,23 +284,6 @@ pub fn is_downloader_tool(name: &str) -> bool {
     [YTDLP_EXE, QJS_EXE, FFMPEG_EXE].contains(&name)
 }
 
-/// IELTS: Oyen's IELTS Speaking coach, the IELTS page (`crate::ielts`):
-/// Oyen asks the questions out loud, listens to the answers through the
-/// microphone and gives a band score, through the Oyenza account. Its code
-/// is in the app, so there is nothing to download. Off, there is no IELTS
-/// tab, and nothing of it runs: no microphone, no player, no calls. Part of
-/// Studio Pro: the Add-ons page lists it only for an account the server says
-/// has Pro, and its tab goes once the server says an account hasn't.
-pub const IELTS: Addon = Addon {
-    id: "ielts",
-    title: "IELTS",
-    blurb: "Practise IELTS Speaking out loud: Oyen asks, listens and gives you a band.",
-    mac_blurb: None,
-    tag: "",
-    files: &[],
-    pro: true,
-};
-
 /// Meeting notes: the Notes page (`crate::notes`). One click and Oyen listens
 /// to the microphone and the computer's own sound (a call in Meet, Zoom,
 /// Teams; on a Mac through a Core Audio tap, macOS 14.2 and later), then the
@@ -357,8 +303,8 @@ pub const MEETING_NOTES: Addon = Addon {
 };
 
 /// Every add-on, in the order the Add-ons page lists them.
-pub const ALL: [&Addon; 11] =
-    [&PRAYER_TIMES, &JAPANESE_READINGS, &SCRIPT_READER, &SYSTEM, &HEALTH, &STOCKS, &NOTIFICATIONS, &IELTS, &MEETING_NOTES, &SCREEN_RECORDER, &DOWNLOADER];
+pub const ALL: [&Addon; 8] =
+    [&PRAYER_TIMES, &JAPANESE_READINGS, &SCRIPT_READER, &SYSTEM, &NOTIFICATIONS, &MEETING_NOTES, &SCREEN_RECORDER, &DOWNLOADER];
 
 /// Whether Japanese readings switch themselves on for a song whose kanji went
 /// unread for want of them (`wants`): only while the person reads
@@ -467,14 +413,14 @@ mod tests {
     }
 
     #[test]
-    fn pro_is_ielts_meeting_notes_and_the_downloader() {
+    fn pro_is_meeting_notes_and_the_downloader() {
         let pro: Vec<&str> = ALL.iter().filter(|a| a.pro).map(|a| a.id).collect();
-        assert_eq!(pro, vec!["ielts", "notes", "downloader"]);
+        assert_eq!(pro, vec!["notes", "downloader"]);
     }
 
     #[test]
     fn built_in_add_ons_are_off_until_switched_on() {
-        for a in [&SYSTEM, &HEALTH, &STOCKS, &NOTIFICATIONS, &IELTS, &MEETING_NOTES] {
+        for a in [&SYSTEM, &NOTIFICATIONS, &MEETING_NOTES] {
             assert!(!a.downloads() && a.size() == 0, "{}", a.id);
             assert_eq!(Addon::find(a.id), Some(a));
             assert_eq!(Status::Ready.line(a, false), "On");
@@ -575,7 +521,7 @@ mod tests {
     fn add_ons_are_listed_in_order_each_with_its_own_id() {
         // The Add-ons page's order: the Downloader last.
         let ids: Vec<&str> = ALL.iter().map(|a| a.id).collect();
-        assert_eq!(ids, ["sholat", "ja", "script", "system", "health", "stocks", "notifications", "ielts", "notes", "recorder", "downloader"]);
+        assert_eq!(ids, ["sholat", "ja", "script", "system", "notifications", "notes", "recorder", "downloader"]);
         for (i, a) in ALL.iter().enumerate() {
             // The key in settings.json and the folder's name.
             assert!(!a.id.is_empty() && a.id.bytes().all(|b| b.is_ascii_lowercase()), "{}", a.id);

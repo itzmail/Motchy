@@ -42,7 +42,7 @@ use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSApplicationD
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGContext;
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSRunLoop, NSRunLoopCommonModes, NSTimer};
-use poni_core::addons::{Status as AddonStatus, DOWNLOADER, HEALTH, JAPANESE_READINGS, PRAYER_TIMES, SYSTEM};
+use poni_core::addons::{Status as AddonStatus, DOWNLOADER, JAPANESE_READINGS, PRAYER_TIMES, SYSTEM};
 use poni_core::frametime::MotionStats;
 use poni_core::phonedrop::{Event as PhoneEvent, QrMatrix};
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -472,9 +472,7 @@ pub struct App {
     oyenza_watch: bool,
     /// The Today page is on screen: the worker asks for the day (`services::oyenza`).
     today_watch: bool,
-    /// The Health page is on screen (it asks for the phone's steps as it opens).
-    health_shown: bool,
-    /// The IELTS or Add-ons page is on screen (it asks whether the account
+    /// The Notes or Add-ons page is on screen (it asks whether the account
     /// has Studio Pro as it opens).
     pro_shown: bool,
     /// Files are being dragged over the island.
@@ -499,14 +497,6 @@ pub struct App {
     addons: Option<services::addons::AddonService>,
     /// The Downloader add-on's runner: started at the first download.
     downloader: Option<services::downloader::DownloaderService>,
-    /// The IELTS coach's calls, microphone and voice, each only while needed.
-    ielts: services::ielts::Kit,
-    /// The IELTS coach paused the music playing as its session began.
-    ielts_music: bool,
-    /// The IELTS page was on screen at the last tick.
-    ielts_shown: bool,
-    /// The IELTS page held the island open at the last tick.
-    ielts_held: bool,
     /// The Notes page's meeting while it is recorded (only then).
     notes_rec: Option<services::notes::Recording>,
     /// The meeting's audio once stopped, kept until its notes are saved (or
@@ -514,10 +504,6 @@ pub struct App {
     notes_take: Option<services::notes::Take>,
     /// When the meeting being taken down began (local time, for its notes).
     notes_started: poni_core::datetime::LocalDateTime,
-    /// The Stocks page's prices: started the first time the page opens.
-    stocks: Option<services::stocks::StocksService>,
-    /// The Stocks page was on screen at the last look (`set_stocks_watch`).
-    stocks_open: bool,
     /// The AI tab's worker: started the first time the tab opens or its
     /// notices are on (`set_usage_watch`).
     usage: Option<services::usage::UsageService>,
@@ -547,12 +533,6 @@ pub struct App {
     smoke_full_screen: Option<std::process::Child>,
     /// The Oyenza step's POST through the Mac's HTTP client: (arrived and answered, what happened).
     smoke_post: Option<(bool, String)>,
-    /// The IELTS coach's voice steps: the line playing and how it went.
-    smoke_voice: Option<SmokeVoice>,
-    /// Its microphone steps: what `Mic::start` gave, then what `stop` gave
-    /// (whether that's right, and what happened).
-    smoke_mic: Option<Result<services::mic::Mic, services::mic::MicError>>,
-    smoke_mic_stop: Option<(bool, String)>,
     /// Meeting notes' recording step: the recording (or why none), then
     /// what stopping it gave.
     smoke_notes: Option<Result<(services::notes::Recording, bool, bool), poni_core::notes::CaptureIssue>>,
@@ -640,7 +620,6 @@ impl App {
             oyenza: None,
             oyenza_watch: false,
             today_watch: false,
-            health_shown: false,
             pro_shown: false,
             drag_hover: false,
             menu_open: false,
@@ -653,15 +632,9 @@ impl App {
             lyrics: None,
             addons: None,
             downloader: None,
-            ielts: Default::default(),
-            ielts_music: false,
-            ielts_shown: false,
-            ielts_held: false,
             notes_rec: None,
             notes_take: None,
             notes_started: Default::default(),
-            stocks: None,
-            stocks_open: false,
             usage: None,
             usage_watch: services::usage::Watch::default(),
             updater: None,
@@ -678,9 +651,6 @@ impl App {
             smoke_devices: None,
             smoke_full_screen: None,
             smoke_post: None,
-            smoke_voice: None,
-            smoke_mic: None,
-            smoke_mic_stop: None,
             smoke_notes: None,
             smoke_notes_stop: None,
             was_floating: false,
@@ -1024,11 +994,6 @@ impl App {
         if before.addon_on(DOWNLOADER.id) && !self.st.settings.addon_on(DOWNLOADER.id) {
             self.downloads_off();
         }
-        // IELTS off: a session ends, the microphone and voice stop, the files go.
-        let ielts_id = poni_core::addons::IELTS.id;
-        if before.addon_on(ielts_id) && !self.st.settings.addon_on(ielts_id) {
-            self.ielts_off();
-        }
         // Meeting notes off: a recording stops and its audio goes.
         let notes_id = poni_core::addons::MEETING_NOTES.id;
         if before.addon_on(notes_id) && !self.st.settings.addon_on(notes_id) {
@@ -1046,14 +1011,6 @@ impl App {
         }
         if addons_changed {
             self.sync_addons();
-        }
-        // Health on or off: the Oyenza worker asks for the steps only while
-        // it's on, and off forgets the ones it had.
-        if before.addon_on(HEALTH.id) != self.st.settings.addon_on(HEALTH.id) {
-            if !self.st.settings.addon_on(HEALTH.id) {
-                self.st.health = None;
-            }
-            self.tell_oyenza_activity();
         }
         // The AI tab's heads-up notices: its worker reads every few minutes only while they're on.
         if before.usage.notices != self.st.settings.usage.notices {
@@ -1115,7 +1072,7 @@ impl App {
                 pinfo!("settings window: open");
             }
         }
-        // Add-ons lists IELTS and Meeting notes by the account's Pro, as its tab does.
+        // Add-ons lists Meeting notes by the account's Pro, as its tab does.
         if self.settings_ui.as_ref().is_some_and(|s| s.view.section == Section::Addons) {
             self.oyenza(OyenzaCmd::CheckPro);
         }
@@ -1553,7 +1510,6 @@ impl App {
             self.update_due();
         }
         self.tell_oyenza_activity();
-        self.set_stocks_watch();
         self.set_usage_watch();
         self.apply_fullscreen();
     }
@@ -1752,14 +1708,6 @@ impl App {
             AppEvent::Addon { id, status } => self.on_addon(id, status),
             AppEvent::Download { id, line } => self.download_line(id, line),
             AppEvent::DownloadEnded { id, ok } => self.download_ended(id, ok),
-            AppEvent::Ielts(reply) => self.ielts_reply(*reply),
-            AppEvent::VoiceEnded => {
-                if let Some(v) = self.smoke_voice.as_mut() {
-                    v.ended.get_or_insert(now);
-                }
-                self.ielts_voice_ended();
-            }
-            AppEvent::MicFailed(why) => self.ielts_mic_failed(why),
             AppEvent::Notes(reply) => self.notes_reply(*reply),
             AppEvent::NotesStopped(issue) => self.notes_stopped(issue),
             AppEvent::Update(services::update::UpdateEvent::Checked(r)) => {
@@ -1783,7 +1731,6 @@ impl App {
             }
             AppEvent::Located(found) => self.on_located(found),
             AppEvent::Cities { file, got } => pages::prayer::cities_came(&mut self.st, file, got),
-            AppEvent::Stocks(ev) => self.st.stocks.apply(ev, self.st.unix),
             AppEvent::Usage(ev) => self.on_usage(ev),
             AppEvent::AdzanEnded => self.adzan_ended(),
             AppEvent::Log(s) => pinfo!("{s}"),
@@ -2778,7 +2725,6 @@ impl App {
                 Command::Notify(_) => {}
                 Command::OpenSettings => self.show_settings(),
                 Command::Usage(c) => self.usage_cmd(c),
-                Command::Ielts(c) => self.ielts_cmd(c),
                 Command::Notes(c) => self.notes_cmd(c),
             }
         }
@@ -2884,7 +2830,6 @@ impl App {
             saver: p.saver,
             watching: self.oyenza_watch,
             today: self.today_watch,
-            health: self.st.health_on(),
         }
     }
 
@@ -2896,29 +2841,6 @@ impl App {
         }
     }
 
-    /// The Stocks page asks oyenza.trade for prices only while it is on
-    /// screen and someone is at the Mac (`pages::stocks::watch`); the worker
-    /// starts the first time it opens.
-    fn set_stocks_watch(&mut self) {
-        let away = self.away.0 || self.away.1;
-        let open = self.mode == Mode::Expanded(PageKind::Stocks) && !away;
-        // Closed, and the worker already told so: nothing to do, every frame.
-        if !open && !self.stocks_open {
-            return;
-        }
-        self.stocks_open = open;
-        let w = pages::stocks::watch(&self.st, open);
-        if self.stocks.is_none() && w.open {
-            match services::stocks::StocksService::start(self.sink.clone()) {
-                Ok(s) => self.stocks = Some(s),
-                Err(e) => pwarn!("service stocks: unavailable ({e})"),
-            }
-        }
-        if let Some(s) = &self.stocks {
-            s.set_watch(w);
-        }
-    }
-
     /// The Today page came on screen or went: the worker asks for the day only meanwhile.
     fn set_today_watch(&mut self, on: bool) {
         if on != self.today_watch {
@@ -2927,18 +2849,7 @@ impl App {
         }
     }
 
-    /// The Health page came on screen: the steps from the phone, now (unless
-    /// just asked for). Never signed in: nothing starts.
-    fn set_health_shown(&mut self, on: bool) {
-        if on != self.health_shown {
-            self.health_shown = on;
-            if let (true, Some(o)) = (on, &self.oyenza) {
-                o.send(OyenzaCmd::RefreshHealth);
-            }
-        }
-    }
-
-    /// The IELTS, Notes or Add-ons page came on screen: whether the account has
+    /// The Notes or Add-ons page came on screen: whether the account has
     /// Studio Pro, now (unless just asked). Never signed in: nothing starts.
     fn set_pro_shown(&mut self, on: bool) {
         if on != self.pro_shown {
@@ -3053,14 +2964,6 @@ impl App {
             }
             OyenzaEvent::DayFailed => self.st.oyenza.agenda_state = crate::state::AgendaState::Failed,
             OyenzaEvent::Pro(pro) => self.st.oyenza.pro = Some(pro),
-            // Steps asked for before Health was switched off stay out.
-            OyenzaEvent::Health(next) if self.st.health_on() => {
-                if let Some(steps) = self.st.take_health(next) {
-                    let notice = pages::health::goal_notice(steps, now + oyenza::NOTICE_S);
-                    self.st.show_or_hold(notice, self.fullscreen_hidden);
-                }
-            }
-            OyenzaEvent::Health(_) => {}
             OyenzaEvent::NoteSaved(saved) => {
                 let o = &mut self.st.oyenza;
                 o.saving = false;
@@ -3084,9 +2987,6 @@ impl App {
             OyenzaEvent::Disconnected { by_server } => {
                 self.end_sign_in();
                 self.st.oyenza = crate::state::OyenzaState::default();
-                self.st.health = None;
-                // Signed out: an IELTS session ends, and the ladder was the account's.
-                self.ielts_off();
                 let (title, subtitle) =
                     if by_server { ("Oyenza disconnected", "Sign in again in Settings") } else { ("Disconnected from Oyenza", "Sign in again any time in Settings") };
                 self.st.notify(Icon::Unlink, palette::TEXT_DIM, title, subtitle, 6.0, None);
@@ -3385,18 +3285,14 @@ impl App {
         }
         self.script_held = held;
         self.prayer_tick();
-        self.ielts_tick();
         self.notes_tick();
         self.check_recorder_alive(false);
-        // Prayer times, System, Health, Stocks, Screen recorder, IELTS or
+        // Prayer times, System, Screen recorder or
         // Downloader switched off: its tab is gone.
         let gone = match self.st.page {
             PageKind::Prayer => !self.st.prayer_on(),
             PageKind::System => !self.st.system_on(),
-            PageKind::Health => !self.st.health_on(),
-            PageKind::Stocks => !self.st.stocks_on(),
             PageKind::Record => !self.st.record_on(),
-            PageKind::Ielts => !self.st.ielts_on(),
             PageKind::Downloads => !self.st.downloader_on(),
             PageKind::Notes => !self.st.notes_on(),
             _ => false,
@@ -3462,9 +3358,7 @@ impl App {
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
         self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
         self.set_today_watch(self.mode == Mode::Expanded(PageKind::Today));
-        self.set_health_shown(self.mode == Mode::Expanded(PageKind::Health));
-        self.set_pro_shown(matches!(self.mode, Mode::Expanded(PageKind::Ielts | PageKind::Notes | PageKind::Addons)));
-        self.set_stocks_watch();
+        self.set_pro_shown(matches!(self.mode, Mode::Expanded(PageKind::Notes | PageKind::Addons)));
         self.set_usage_watch();
         // The Pill theme floats the island below the top edge (below the menu
         // bar for what hangs under a notch).
@@ -4181,36 +4075,6 @@ impl App {
                 settings_host::redraw();
             }
             "settings-window-closed" => self.pending.push(Deferred::CloseSettings),
-            // The IELTS coach's voice (services::voice): a short tone as a
-            // 16 kHz WAV, then, when CI passes one, a short mp3 like the
-            // server's, each to its end.
-            "ielts-voice" | "ielts-voice-mp3" => {
-                let file = if name == "ielts-voice" {
-                    let p = paths::data_dir().join("ielts").join("smoke-voice.wav");
-                    smoke_tone_wav(&p, 0.5).map(|()| Some(p)).map_err(|e| e.to_string())
-                } else {
-                    Ok(std::env::var_os("PONI_SMOKE_MP3").map(PathBuf::from))
-                };
-                let started = clock::mono();
-                self.smoke_voice = match file {
-                    Ok(Some(file)) => {
-                        let mut player = services::voice::VoicePlayer::default();
-                        let played = player.play(&file, &self.sink);
-                        Some(SmokeVoice { player, file, started, played, ended: None })
-                    }
-                    Ok(None) => None,
-                    Err(e) => Some(SmokeVoice { player: Default::default(), file: PathBuf::new(), started, played: Err(e), ended: None }),
-                };
-            }
-            // Its microphone (services::mic): whatever this Mac allows (a
-            // microphone or none; macOS's yes, no or a question nobody
-            // answers), start answers at once. The stop step comes after.
-            "ielts-mic" => {
-                self.smoke_voice = None;
-                let out = paths::data_dir().join("ielts").join("smoke-answer.wav");
-                self.smoke_mic = Some(services::mic::Mic::start(&out, &self.sink));
-            }
-            "ielts-mic-stop" => self.smoke_mic_stop = Some(self.smoke_mic_stopped()),
             // Meeting notes' recording (services::notes with capture.rs): the
             // microphone and the Mac's own sound through a Core Audio tap, for
             // two seconds, whatever this Mac allows; the stop step follows.
@@ -4287,10 +4151,6 @@ impl App {
             "now-playing" => self.st.media.as_ref().is_some_and(|m| m.title == SMOKE_SERVICE_TRACK) || std::env::var_os("PONI_SMOKE_NOW_PLAYING").is_none() || waited > 15.0,
             "now-playing-browser" => self.st.media.as_ref().is_some_and(|m| m.title == SMOKE_BROWSER_TRACK) || std::env::var_os("PONI_SMOKE_BROWSER").is_none() || waited > 25.0,
             "menu" => waited > 1.0,
-            // The line plays to its end (half a second).
-            "ielts-voice" | "ielts-voice-mp3" => self.smoke_voice.as_ref().is_none_or(|v| v.ended.is_some() || v.played.is_err()) || waited > 5.0,
-            // A second and a half of whatever the microphone hears.
-            "ielts-mic" => waited > 1.5,
             // Two seconds of a meeting.
             "notes-capture" => waited > 2.0,
             "settings-window" | "settings-window-light" => (settings_host::is_open() && waited > 0.8) || waited > 5.0,
@@ -4714,58 +4574,11 @@ impl App {
                 let d = format!("{status:?}; files {}; downloader {}", if gone { "deleted" } else { "still there" }, if self.addons.is_none() { "stopped" } else { "still running" });
                 Some(("ja-readings-off", ok, d))
             }
-            "ielts-voice" | "ielts-voice-mp3" => {
-                let check = if name == "ielts-voice" { "ielts-voice-wav" } else { "ielts-voice-mp3" };
-                let Some(v) = &self.smoke_voice else { return Some((check, true, "skipped: no mp3 on this run".into())) };
-                let ended = v.ended.map_or("never".to_string(), |t| format!("after {:.2} s", t - v.started));
-                let ok = v.played.is_ok() && v.ended.is_some() && !v.player.playing();
-                Some((check, ok, format!("{}: play {:?}, VoiceEnded {ended}", v.file.display(), v.played)))
-            }
-            "ielts-mic" => {
-                use services::mic::MicError;
-                let (ok, gave) = match &self.smoke_mic {
-                    Some(Ok(mic)) => (true, format!("Ok ({mic:?}, level {:.3})", mic.level())),
-                    Some(Err(MicError::NoDevice)) => (true, "NoDevice (no microphone on this Mac)".to_string()),
-                    Some(Err(MicError::Denied)) => (true, "Denied (macOS says no)".to_string()),
-                    Some(Err(MicError::Failed(e))) => (false, format!("Failed: {e}")),
-                    None => (false, "nothing".to_string()),
-                };
-                Some(("ielts-mic-start", ok, format!("Mic::start gave {gave}")))
-            }
-            "ielts-mic-stop" => {
-                let (ok, d) = self.smoke_mic_stop.clone().unwrap_or((false, "not run".into()));
-                Some(("ielts-mic-stop", ok, d))
-            }
             "notes-capture-stop" => {
                 let (ok, d) = self.smoke_notes_stop.clone().unwrap_or((false, "not run".into()));
                 Some(("notes-capture", ok, d))
             }
             _ => None,
-        }
-    }
-
-    /// The microphone's stop step: what `Mic::stop` gave, and whether that's
-    /// right for what `start` gave.
-    fn smoke_mic_stopped(&mut self) -> (bool, String) {
-        match self.smoke_mic.take() {
-            Some(Ok(mic)) => {
-                let was = format!("{mic:?}");
-                match mic.stop() {
-                    Ok((path, secs)) => match smoke_wav_format(&path) {
-                        Some((rate, channels, bits, at, bytes)) => {
-                            let ok = rate == 16_000 && channels == 1 && bits == 16 && secs > 1.0 && bytes >= 32_000;
-                            (ok, format!("{secs:.2} s in {}: {rate} Hz, {channels} channel(s), {bits}-bit, {bytes} bytes of samples from byte {at}", path.display()))
-                        }
-                        None => (false, format!("{secs:.2} s, but {} isn't a WAV file", path.display())),
-                    },
-                    // macOS's question still up (nobody answers it on CI), or
-                    // the person said no meanwhile: nothing was recorded.
-                    Err(e) if was == "asking macOS" || was == "turned down" => (true, format!("{e:?} (it was {was})")),
-                    Err(e) => (false, format!("{e:?} (it was {was})")),
-                }
-            }
-            Some(Err(e)) => (true, format!("nothing to stop: start gave {e:?}")),
-            None => (false, "Mic::start didn't run".into()),
         }
     }
 
@@ -4793,43 +4606,6 @@ impl App {
             None => (false, "Recording::start didn't run".into()),
         }
     }
-}
-
-/// The IELTS coach's voice step: the player, its file, when the line
-/// started, what `play` said and when `AppEvent::VoiceEnded` came.
-struct SmokeVoice {
-    player: services::voice::VoicePlayer,
-    file: PathBuf,
-    started: f64,
-    played: Result<(), String>,
-    ended: Option<f64>,
-}
-
-/// The voice step's line: a quiet 440 Hz tone, `secs` long, as a 16 kHz mono
-/// 16-bit WAV (the microphone's format too).
-fn smoke_tone_wav(path: &std::path::Path, secs: f32) -> std::io::Result<()> {
-    let n = (16_000.0 * secs) as u32;
-    let mut b = Vec::with_capacity(44 + 2 * n as usize);
-    b.extend_from_slice(b"RIFF");
-    b.extend_from_slice(&(36 + 2 * n).to_le_bytes());
-    b.extend_from_slice(b"WAVEfmt ");
-    b.extend_from_slice(&16u32.to_le_bytes());
-    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    b.extend_from_slice(&1u16.to_le_bytes()); // mono
-    b.extend_from_slice(&16_000u32.to_le_bytes());
-    b.extend_from_slice(&32_000u32.to_le_bytes()); // bytes a second
-    b.extend_from_slice(&2u16.to_le_bytes()); // bytes a frame
-    b.extend_from_slice(&16u16.to_le_bytes()); // bits
-    b.extend_from_slice(b"data");
-    b.extend_from_slice(&(2 * n).to_le_bytes());
-    for i in 0..n {
-        let s = (i as f32 / 16_000.0 * 440.0 * std::f32::consts::TAU).sin() * 0.1 * i16::MAX as f32;
-        b.extend_from_slice(&(s as i16).to_le_bytes());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, b)
 }
 
 /// A WAV file's rate, channels, bits, and where its samples start and how
@@ -5194,7 +4970,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 77] = [
+const SMOKE_STEPS: [&str; 73] = [
     "idle",
     "hover",
     "open-focus",
@@ -5265,10 +5041,6 @@ const SMOKE_STEPS: [&str; 77] = [
     "settings-window",
     "settings-window-light",
     "settings-window-closed",
-    "ielts-voice",
-    "ielts-voice-mp3",
-    "ielts-mic",
-    "ielts-mic-stop",
     "notes-capture",
     "notes-capture-stop",
     "menu",
@@ -5346,10 +5118,6 @@ impl Smoke {
 // The Downloads page's commands and yt-dlp's reports.
 #[path = "app_downloads.rs"]
 mod downloads;
-
-// The IELTS coach's page, worker, microphone and voice.
-#[path = "app_ielts.rs"]
-mod ielts;
 
 // Meeting notes: the recording and the handing over.
 #[path = "app_notes.rs"]

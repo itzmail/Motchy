@@ -546,7 +546,26 @@ fn day_status(st: &AppState) -> (String, bool) {
     if st.oyenza.agenda_state == AgendaState::Failed {
         return ("Offline".into(), true);
     }
-    (st.oyenza.agenda_unix.map(|at| super::health::updated_text(st, at)).unwrap_or_default(), false)
+    (st.oyenza.agenda_unix.map(|at| updated_text(st, at)).unwrap_or_default(), false)
+}
+
+/// "Updated 08:12" today, "Updated yesterday", or "Updated 21 Oct".
+fn updated_text(st: &AppState, at: i64) -> String {
+    use poni_core::datetime::{fmt_clock, fmt_date_short, LocalDateTime};
+    let local = st.local;
+    let since_midnight = local.hour as i64 * 3600 + local.minute as i64 * 60 + local.second as i64;
+    let ago = (st.unix - at).max(0);
+    if ago <= since_midnight {
+        let secs = since_midnight - ago;
+        let t = LocalDateTime { hour: (secs / 3600) as u8, minute: ((secs / 60) % 60) as u8, second: 0, ..local };
+        return format!("Updated {}", fmt_clock(&t, st.settings.use_24h));
+    }
+    let days = (ago - since_midnight - 1) / 86_400 + 1;
+    if days == 1 {
+        "Updated yesterday".to_string()
+    } else {
+        format!("Updated {}", fmt_date_short(&local.add_days(-days)))
+    }
 }
 
 /// A line that says what's wrong, with the way to fix it on its right.

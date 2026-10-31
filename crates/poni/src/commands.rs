@@ -62,8 +62,6 @@ pub enum OyenzaCmd {
     Undo(String),
     /// The Oyenza tab opened: today's money and the bills, now.
     Refresh,
-    /// The Health tab opened: the steps from the phone, now (unless just asked for).
-    RefreshHealth,
     /// Today's Try again: the day, now (unless just asked for).
     RefreshDay,
     /// A Pro add-on's page, or Add-ons, opened: whether the account has
@@ -121,22 +119,6 @@ impl std::fmt::Debug for UsageCmd {
             UsageCmd::Show(id) => write!(f, "Show({})", id.key()),
         }
     }
-}
-
-/// The IELTS page's buttons; `poni_core::ielts::Coach` decides what each
-/// does in the moment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IeltsCmd {
-    /// Mulai (and Lagi on the result): a session at the picked level.
-    Start,
-    /// The mic button: answer now, or stop the answer.
-    Mic,
-    /// Lewati: the next question, this one unscored.
-    Skip,
-    /// Udahan or Selesai: end the session.
-    Quit,
-    /// Coba lagi.
-    Retry,
 }
 
 /// The Notes page's buttons (the Meeting notes add-on).
@@ -224,7 +206,6 @@ pub enum Command {
     Phone(PhoneCmd),
     Pair(PairCmd),
     Oyenza(OyenzaCmd),
-    Ielts(IeltsCmd),
     Notes(NotesCmd),
     /// Get one of Prayer times' online city files ("ed", "near/55_-5"; the
     /// answer: `AppEvent::Cities`).

@@ -35,7 +35,6 @@ use crate::ui::{Hit, Input};
 use poni_core::addons::{Status as AddonStatus, JAPANESE_READINGS, PRAYER_TIMES};
 use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color, Point, Rect};
-use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
 use poni_core::oyenza::{Activity, Bill, Day, Seen, Txn, WalletRef};
 use poni_core::pomodoro::{Phase, RunState};
@@ -105,7 +104,6 @@ enum Scene {
     ChargingHud,
     LowBatteryHud,
     Page(PageKind),
-    HealthSignedOut,
     ShelfItems,
     ShelfPhone,
     /// The System page on one module.
@@ -154,9 +152,6 @@ enum Scene {
     /// days on clicked in the grid.
     TodayOff,
     TodayPicked,
-    /// The Stocks add-on on a made-up market (`pages::stocks::picture`):
-    /// the IHSG's day, Bank BCA's year, the search and edit mode.
-    Stocks(crate::pages::stocks::Picture),
     /// The Update sheet for a later version: while it downloads (or where
     /// this copy can't replace itself), with the DMG to download, and once
     /// its app is out of the DMG and checked, Install now and Install on
@@ -176,9 +171,6 @@ enum Scene {
     /// and limits, a trouble mix, nothing found, the first look, connecting
     /// and connected Oyenza Inference, the Services list.
     Ai(crate::pages::usage::Picture),
-    /// The IELTS add-on signed in: on the Mac, for now, the coach is on its
-    /// way (its microphone and voice come with branch ielts-coach-mac).
-    Ielts,
     /// The Downloader, signed in with Studio Pro: the Downloads page with a
     /// download coming in, one waiting, one done and one failed; the closed
     /// island while it downloads (around a notch, the ring and the percent
@@ -195,7 +187,7 @@ enum Scene {
     AddonsPro,
 }
 
-const SCENES: [Scene; 19] = [
+const SCENES: [Scene; 17] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Hover,
@@ -206,8 +198,6 @@ const SCENES: [Scene; 19] = [
     Scene::Page(PageKind::Focus),
     Scene::Page(PageKind::Today),
     Scene::Page(PageKind::Tasks),
-    Scene::Page(PageKind::Health),
-    Scene::HealthSignedOut,
     Scene::Page(PageKind::Media),
     Scene::Page(PageKind::Shelf),
     // In the Clipboard page's place (it left the app), so the numbers stay.
@@ -269,20 +259,12 @@ const OYENZA_SCENES: [Scene; 4] = [Scene::Oyenza, Scene::OyenzaCode, Scene::Oyen
 const POWER_SCENES: [Scene; 1] = [Scene::System(Module::Power)];
 /// The Today page signed in, after Power.
 const TODAY_SCENES: [Scene; 5] = [Scene::TodayDay, Scene::TodayNoApps, Scene::TodayTiles, Scene::TodayOff, Scene::TodayPicked];
-/// The Stocks page, after Prayer times abroad.
-const STOCKS_SCENES: [Scene; 4] = [
-    Scene::Stocks(crate::pages::stocks::Picture::Day),
-    Scene::Stocks(crate::pages::stocks::Picture::Year),
-    Scene::Stocks(crate::pages::stocks::Picture::Search),
-    Scene::Stocks(crate::pages::stocks::Picture::Edit),
-];
-/// The Update sheet, after Stocks (so every other picture keeps its number).
+/// The Update sheet, after Prayer times abroad.
 const UPDATE_SCENES: [Scene; 2] = [Scene::UpdateSheet, Scene::UpdateReady];
 /// The Record page and the recording on the closed island, every theme,
 /// after the Update sheet (so every other picture keeps its number).
 const RECORD_SCENES: [Scene; 5] = [Scene::Record, Scene::RecordLive, Scene::RecordActivity, Scene::RecordPaused, Scene::AddonsRecorder];
-/// The IELTS page, after the Update sheet.
-const IELTS_SCENES: [Scene; 1] = [Scene::Ielts];
+
 /// The Downloader, last of all (so every other picture keeps its number).
 const DOWNLOAD_SCENES: [Scene; 3] = [Scene::Downloads, Scene::DownloadActivity, Scene::AddonsDownloader];
 /// Meeting notes and every Pro add-on, after the Downloader.
@@ -303,7 +285,6 @@ impl Scene {
             Scene::ShelfItems => "page-shelf-items".into(),
             Scene::ShelfPhone => "page-shelf-phone".into(),
             Scene::Page(p) => format!("page-{}", p.key()),
-            Scene::HealthSignedOut => "page-health-signed-out".into(),
             Scene::System(Module::Cpu) => "page-system".into(),
             Scene::System(m) => format!("page-system-{}", m.title().to_lowercase()),
             Scene::IdleStatus => "idle-status".into(),
@@ -332,8 +313,6 @@ impl Scene {
             Scene::TodayTiles => "page-today-tiles".into(),
             Scene::TodayOff => "page-today-off".into(),
             Scene::TodayPicked => "page-today-picked".into(),
-            Scene::Stocks(crate::pages::stocks::Picture::Day) => "page-stocks".into(),
-            Scene::Stocks(p) => format!("page-stocks-{}", format!("{p:?}").to_lowercase()),
             Scene::UpdateSheet => "page-update-sheet".into(),
             Scene::UpdateReady => "page-update-ready".into(),
             Scene::Record => "page-record".into(),
@@ -342,7 +321,6 @@ impl Scene {
             Scene::RecordPaused => "record-paused-activity".into(),
             Scene::AddonsRecorder => "page-addons-recorder".into(),
             Scene::Ai(p) => p.name().into(),
-            Scene::Ielts => "page-ielts".into(),
             Scene::Downloads => "page-downloads".into(),
             Scene::DownloadActivity => "download-activity".into(),
             Scene::AddonsDownloader => "page-addons-downloader".into(),
@@ -412,10 +390,10 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
-    // The Japanese song, the Add-ons tab, Prayer times, Settings, the headphone pop-up, Oyenza, Power, Today signed in, Prayer times abroad, Stocks, the Update sheet, Record, the AI tab, IELTS and the Downloader in every theme, after Pill's.
+    // The Japanese song, the Add-ons tab, Prayer times, Settings, the headphone pop-up, Oyenza, Power, Today signed in, Prayer times abroad, the Update sheet, Record, the AI tab and the Downloader in every theme, after Pill's.
     let first = SCENES.len() + SYSTEM_SCENES.len() + 2 + PILL_SCENES.len();
     let mut next = first;
-    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(OYENZA_SCENES).chain(POWER_SCENES).chain(TODAY_SCENES).chain(PRAYER_WORLD_SCENES).chain(STOCKS_SCENES).chain(UPDATE_SCENES).chain(RECORD_SCENES).chain(ai_scenes()).chain(IELTS_SCENES).chain(DOWNLOAD_SCENES).chain(NOTES_SCENES);
+    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(OYENZA_SCENES).chain(POWER_SCENES).chain(TODAY_SCENES).chain(PRAYER_WORLD_SCENES).chain(UPDATE_SCENES).chain(RECORD_SCENES).chain(ai_scenes()).chain(DOWNLOAD_SCENES).chain(NOTES_SCENES);
     for (k, scene) in JA_SCENES.into_iter().chain(ADDON_SCENES).chain(PRAYER_SCENES).chain(later).enumerate() {
         let path = out.join(format!("{:02}-{}{suffix}.png", first + k, scene.name()));
         match render_scene(&mut gfx, scene, theme, notch, ja.as_ref(), &path) {
@@ -812,12 +790,6 @@ fn seed_downloads(st: &mut AppState) {
     st.downloads = jobs;
 }
 
-/// The Health add-on switched on, as its row in Add-ons does.
-fn health_on(st: &mut AppState) {
-    st.settings.set_addon(poni_core::addons::HEALTH.id, true);
-    st.addons.insert(poni_core::addons::HEALTH.id, AddonStatus::Ready);
-}
-
 fn base_state(theme: Theme) -> AppState {
     let settings = Settings { theme, sounds: false, show_media_activity: true, lyrics: true, ..Default::default() };
     let mut st = AppState::new(settings, Store::default());
@@ -937,17 +909,6 @@ fn seed(st: &mut AppState) {
     if let Some(id) = done {
         st.store.tasks.toggle(id, (unix - 1800).max(day_start + 60));
     }
-    let today = st.local;
-    let week = [5210u32, 9120, 7480, 3960, 10230, 6840, 8412];
-    let days = week
-        .iter()
-        .enumerate()
-        .map(|(i, &steps)| {
-            let last = i + 1 == week.len();
-            HealthDay { date: today.add_days(i as i64 + 1 - week.len() as i64).day_key(), steps, distance_m: last.then_some(6140), active_kcal: last.then_some(342) }
-        })
-        .collect();
-    st.health = Some(HealthSnapshot { goal: 8000, source: HealthSource::AppleHealth, updated_at: unix - 8 * 60, days });
     st.store.focus_sessions.insert(st.day_key(), 2);
 }
 
@@ -1089,10 +1050,6 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             if p == PageKind::Media {
                 media(&mut st);
             }
-            // Health is an add-on, off by default: on for its own page.
-            if p == PageKind::Health {
-                health_on(&mut st);
-            }
             if p == PageKind::Focus {
                 st.pomodoro.phase = Phase::Focus;
                 st.pomodoro.run = RunState::Running { ends_at: NOW_MONO + 1104.5 };
@@ -1137,15 +1094,6 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.page = PageKind::Today;
             Mode::Expanded(PageKind::Today)
         }
-        Scene::Ielts => {
-            // IELTS is an add-on, off by default: on for its own scene, signed in.
-            st.settings.set_addon(poni_core::addons::IELTS.id, true);
-            st.addons.insert(poni_core::addons::IELTS.id, AddonStatus::Ready);
-            st.oyenza = fake_oyenza(&st, false);
-            st.ielts = poni_core::ielts::Coach::sample(poni_core::ielts::Sample::Home, st.now);
-            st.page = PageKind::Ielts;
-            Mode::Expanded(PageKind::Ielts)
-        }
         Scene::Downloads | Scene::DownloadActivity | Scene::AddonsDownloader => {
             // The Downloader is an add-on, off by default, for Studio Pro: on
             // for its own scenes, signed in with Pro.
@@ -1175,7 +1123,7 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.oyenza = fake_oyenza(&st, false);
             st.oyenza.pro = Some(true);
             st.downloader_offered = true;
-            for a in [poni_core::addons::MEETING_NOTES, poni_core::addons::IELTS, poni_core::addons::DOWNLOADER] {
+            for a in [poni_core::addons::MEETING_NOTES, poni_core::addons::DOWNLOADER] {
                 st.settings.set_addon(a.id, true);
                 st.addons.insert(a.id, AddonStatus::Ready);
             }
@@ -1197,15 +1145,6 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
                     }
                 }
             }
-        }
-        Scene::Stocks(shows) => {
-            // Stocks is an add-on, off by default: on for its own scenes.
-            st.settings.set_addon(poni_core::addons::STOCKS.id, true);
-            st.addons.insert(poni_core::addons::STOCKS.id, AddonStatus::Ready);
-            let now = st.now;
-            crate::pages::stocks::picture(&mut st, shows, now);
-            st.page = PageKind::Stocks;
-            Mode::Expanded(PageKind::Stocks)
         }
         Scene::Record | Scene::RecordLive | Scene::RecordActivity | Scene::RecordPaused | Scene::AddonsRecorder => {
             use poni_core::recorder::Phase as RecPhase;
@@ -1256,12 +1195,6 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.oyenza = fake_oyenza(&st, false);
             st.page = PageKind::Settings;
             Mode::Expanded(PageKind::Settings)
-        }
-        Scene::HealthSignedOut => {
-            health_on(&mut st);
-            st.health = None;
-            st.page = PageKind::Health;
-            Mode::Expanded(PageKind::Health)
         }
         Scene::IdleStatus => {
             st.settings.idle_style = IdleStyle::Status;

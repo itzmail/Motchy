@@ -14,8 +14,6 @@ pub mod card;
 pub mod downloads;
 pub mod downloads_offer;
 pub mod focus;
-pub mod health;
-pub mod ielts;
 pub mod media;
 pub mod notes;
 pub mod notifications;
@@ -25,7 +23,6 @@ pub mod record;
 pub mod script;
 pub mod settings;
 pub mod shelf;
-pub mod stocks;
 pub mod system;
 pub mod tasks;
 pub mod today;
@@ -67,16 +64,9 @@ pub enum PageKind {
     /// Oyenza, with Oyen himself as its tab (`oyen::tab`): signed out, the
     /// way to sign in; signed in, the money by day.
     Oyenza,
-    /// The Health add-on's page, while it is on ([`tabs`]): the steps
-    /// Oyenza sends, so its tab sits beside Oyenza's.
-    Health,
-    /// The IELTS add-on's page, while it is on ([`tabs`]): Oyen as an IELTS
-    /// Speaking examiner, through the Oyenza account, so its tab follows
-    /// Oyenza's and Health's.
-    Ielts,
     /// The Meeting notes add-on's page, while it is on ([`tabs`]; Windows):
     /// Oyen listens to a meeting and the Oyenza account writes its notes, so
-    /// its tab follows IELTS'.
+    /// its tab follows Oyenza's.
     Notes,
     /// The System add-on's page, while it is on ([`tabs`]).
     System,
@@ -87,8 +77,6 @@ pub enum PageKind {
     Record,
     /// Prayer times, while that add-on is on ([`tabs`]).
     Prayer,
-    /// The IHSG and the person's stocks, while the Stocks add-on is on ([`tabs`]).
-    Stocks,
     /// Links to save as video or sound, while the Downloader add-on is on ([`tabs`]).
     Downloads,
     /// Which apps' notifications show on the island, while the
@@ -104,7 +92,7 @@ pub enum PageKind {
 impl PageKind {
     /// The tab row's order: the island's own pages, Oyenza, then the
     /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 19] = [
+    pub const ALL: [PageKind; 16] = [
         PageKind::Media,
         PageKind::Today,
         PageKind::Shelf,
@@ -112,14 +100,11 @@ impl PageKind {
         PageKind::Focus,
         PageKind::Ai,
         PageKind::Oyenza,
-        PageKind::Health,
-        PageKind::Ielts,
         PageKind::Notes,
         PageKind::System,
         PageKind::Script,
         PageKind::Record,
         PageKind::Prayer,
-        PageKind::Stocks,
         PageKind::Downloads,
         PageKind::Notifications,
         PageKind::Addons,
@@ -131,8 +116,6 @@ impl PageKind {
             PageKind::Media => "media",
             PageKind::Focus => "focus",
             PageKind::Ai => "ai",
-            PageKind::Health => "health",
-            PageKind::Ielts => "ielts",
             PageKind::Notes => "notes",
             PageKind::Shelf => "shelf",
             PageKind::Tasks => "tasks",
@@ -142,7 +125,6 @@ impl PageKind {
             PageKind::Record => "record",
             PageKind::Oyenza => "oyenza",
             PageKind::Prayer => "prayer",
-            PageKind::Stocks => "stocks",
             PageKind::Downloads => "downloads",
             PageKind::Notifications => "notifications",
             PageKind::Addons => "addons",
@@ -151,8 +133,7 @@ impl PageKind {
     }
 
     pub fn from_key(s: &str) -> PageKind {
-        // Health took the Water page's place in the tab row.
-        let s = if s.trim().eq_ignore_ascii_case("water") { "health" } else { s.trim() };
+        let s = s.trim();
         Self::ALL.into_iter().find(|p| p.key().eq_ignore_ascii_case(s)).unwrap_or(PageKind::Media)
     }
 
@@ -161,8 +142,6 @@ impl PageKind {
             PageKind::Media => "Music",
             PageKind::Focus => "Focus",
             PageKind::Ai => "AI",
-            PageKind::Health => "Health",
-            PageKind::Ielts => "IELTS",
             PageKind::Notes => "Notes",
             PageKind::Shelf => "Shelf",
             PageKind::Tasks => "Tasks",
@@ -172,7 +151,6 @@ impl PageKind {
             PageKind::Record => "Record",
             PageKind::Oyenza => "Oyenza",
             PageKind::Prayer => "Prayer",
-            PageKind::Stocks => "Stocks",
             PageKind::Downloads => "Downloads",
             PageKind::Notifications => "Notifications",
             PageKind::Addons => "Add-ons",
@@ -185,8 +163,6 @@ impl PageKind {
             PageKind::Media => Icon::Music,
             PageKind::Focus => Icon::Timer,
             PageKind::Ai => Icon::Ai,
-            PageKind::Health => Icon::Steps,
-            PageKind::Ielts => Icon::Mic,
             PageKind::Notes => Icon::Notes,
             PageKind::Shelf => Icon::Tray,
             PageKind::Tasks => Icon::ListChecks,
@@ -196,7 +172,6 @@ impl PageKind {
             PageKind::Record => Icon::Recorder,
             PageKind::Oyenza => Icon::Wallet,
             PageKind::Prayer => Icon::Moon,
-            PageKind::Stocks => Icon::Stocks,
             PageKind::Downloads => Icon::Download,
             PageKind::Notifications => Icon::Bell,
             PageKind::Addons => Icon::Addons,
@@ -228,8 +203,8 @@ impl PageKind {
     }
 }
 
-/// The tabs in the header: every page but Settings, and Health, IELTS, Notes,
-/// System, Script, Record, Prayer, Stocks and Notifications only while their
+/// The tabs in the header: every page but Settings, and Notes,
+/// System, Script, Record, Prayer and Notifications only while their
 /// add-ons are on. Music, Today, Shelf, Tasks and Focus unless Settings took
 /// them off the row; one of those still shows while its page is open (a file
 /// dropped on the island opens the Shelf). AI and Oyenza are always there
@@ -249,13 +224,10 @@ fn row(st: &AppState, open: Option<PageKind>) -> Vec<PageKind> {
     PageKind::ALL
         .into_iter()
         .filter(|&p| match p {
-            PageKind::Health => st.health_on(),
-            PageKind::Ielts => st.ielts_on(),
             PageKind::Notes => st.notes_on(),
             PageKind::System => st.system_on(),
             PageKind::Prayer => st.prayer_on(),
             PageKind::Script => st.script_on(),
-            PageKind::Stocks => st.stocks_on(),
             PageKind::Downloads => st.downloader_on(),
             PageKind::Record => st.record_on(),
             PageKind::Notifications => st.notifications_on(),
@@ -278,8 +250,6 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Media => media::height(st),
         PageKind::Focus => focus::height(st),
         PageKind::Ai => usage::height(st),
-        PageKind::Health => health::height(st),
-        PageKind::Ielts => ielts::height(st),
         PageKind::Notes => notes::height(st),
         PageKind::Shelf => shelf::height(st),
         PageKind::Tasks => tasks::height(st),
@@ -289,7 +259,6 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Record => record::height(st),
         PageKind::Oyenza => oyenza::height(st),
         PageKind::Prayer => prayer::height(st),
-        PageKind::Stocks => stocks::height(st),
         PageKind::Downloads => downloads::height(st),
         PageKind::Notifications => notifications::height(st),
         PageKind::Addons => addons::height(st),
@@ -312,7 +281,6 @@ pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
         PageKind::Prayer => prayer::next_wake(st),
         PageKind::Today => today::next_wake(st),
         PageKind::Downloads => downloads::next_wake(st),
-        PageKind::Ielts => ielts::next_wake(st),
         PageKind::Notes => notes::next_wake(st),
         _ => None,
     };
@@ -419,8 +387,6 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),
         PageKind::Ai => usage::draw(ui, st, area),
-        PageKind::Health => health::draw(ui, st, area),
-        PageKind::Ielts => ielts::draw(ui, st, area),
         PageKind::Notes => notes::draw(ui, st, area),
         PageKind::Shelf => shelf::draw(ui, st, area),
         PageKind::Tasks => tasks::draw(ui, st, area),
@@ -430,7 +396,6 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Record => record::draw(ui, st, area),
         PageKind::Oyenza => oyenza::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
-        PageKind::Stocks => stocks::draw(ui, st, area),
         PageKind::Downloads => downloads::draw(ui, st, area),
         PageKind::Notifications => notifications::draw(ui, st, area),
         PageKind::Addons => addons::draw(ui, st, area),
@@ -747,11 +712,11 @@ mod tests {
         assert_eq!(tabs(&st), [Media, Today, Shelf, Tasks, Focus, Ai, Oyenza, Addons]);
         st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
         assert_eq!(tabs(&st), [Media, Today, Shelf, Tasks, Focus, Ai, Oyenza, Addons]);
-        // The add-ons' pages come after Oyenza (Health, Oyenza's steps, first), before the "+".
-        for id in ["system", "script", "health"] {
+        // The add-ons' pages come after Oyenza, before the "+".
+        for id in ["system", "script"] {
             st.addons.insert(id, poni_core::addons::Status::Ready);
         }
-        assert_eq!(&tabs(&st)[6..], [Oyenza, Health, System, Script, Addons]);
+        assert_eq!(&tabs(&st)[6..], [Oyenza, System, Script, Addons]);
         // Clipboard left the app: an island last open there opens on Music.
         assert_eq!(PageKind::from_key("clipboard"), Media);
     }
@@ -815,9 +780,8 @@ mod tests {
         assert_eq!(tabs(&st).last(), Some(&PageKind::Addons));
         assert_eq!(PageKind::from_key("addons"), PageKind::Addons);
         // The window is as tall as the tallest page (System, laid out for
-        // whether it shows or not); the add-ons' rows and Stocks stay under it.
+        // whether it shows or not); the add-ons' rows stay under it.
         assert!(content_height(PageKind::Addons, &st) <= content_height(PageKind::System, &st));
-        assert!(content_height(PageKind::Stocks, &st) <= content_height(PageKind::System, &st));
         // Notifications with as many apps as it lists.
         for i in 0..poni_core::notifications::MAX_APPS {
             st.settings.notifications.remember(&format!("App.{i}"), &format!("App {i}"));
@@ -843,11 +807,9 @@ mod tests {
     }
 
     #[test]
-    fn system_health_and_stocks_have_a_tab_only_while_their_add_ons_are_on() {
+    fn system_has_a_tab_only_while_their_add_ons_are_on() {
         for (page, addon) in [
             (PageKind::System, poni_core::addons::SYSTEM),
-            (PageKind::Health, poni_core::addons::HEALTH),
-            (PageKind::Stocks, poni_core::addons::STOCKS),
         ] {
             let mut st = state();
             assert!(!tabs(&st).contains(&page), "{} is off for everyone until switched on", addon.id);
@@ -924,32 +886,6 @@ mod tests {
         assert!(content_height(PageKind::Prayer, &st) <= content_height(PageKind::Tasks, &st));
         st.addons.insert("sholat", poni_core::addons::Status::Downloading { done: 1, total: 2 });
         assert!(!tabs(&st).contains(&PageKind::Prayer));
-    }
-
-    #[test]
-    fn ielts_has_a_tab_only_while_its_add_on_is_on_after_health() {
-        use PageKind::{Addons, Health, Ielts, Oyenza};
-        let mut st = state();
-        assert!(!tabs(&st).contains(&Ielts), "off for everyone until switched on");
-        st.addons.insert("ielts", poni_core::addons::Status::Ready);
-        st.addons.insert("health", poni_core::addons::Status::Ready);
-        assert_eq!(&tabs(&st)[6..], [Oyenza, Health, Ielts, Addons]);
-        // Signed out it shows the sign-in card; signed in, every state is as
-        // tall, and never taller than System: the window keeps its size.
-        let signed_out = content_height(Ielts, &st);
-        st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
-        let h = content_height(Ielts, &st);
-        assert!(signed_out < h && h <= content_height(PageKind::System, &st), "{signed_out} {h}");
-        for s in [poni_core::ielts::Sample::Talking, poni_core::ielts::Sample::Result, poni_core::ielts::Sample::MicDenied] {
-            st.ielts = poni_core::ielts::Coach::sample(s, 10.0);
-            assert_eq!(content_height(Ielts, &st), h);
-        }
-        // An island last open on it opens on the first tab once it's off.
-        let store = Store { last_page: "ielts".into(), ..Store::default() };
-        let mut settings = Settings { remember_page: true, ..Settings::default() };
-        assert_eq!(AppState::new(settings.clone(), store.clone()).page, PageKind::Media);
-        settings.set_addon("ielts", true);
-        assert_eq!(AppState::new(settings, store).page, Ielts);
     }
 
     #[test]

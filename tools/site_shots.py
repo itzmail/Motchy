@@ -92,7 +92,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # States the site shows; the rest of the self-test's states are left out.
 KEEP = {
     "idle-clock", "idle-eyes", "media-activity", "timer-activity", "volume-hud", "bluetooth-hud",
-    "page-media", "page-focus", "page-health", "page-shelf", "page-tasks", "page-today-day",
+    "page-media", "page-focus", "page-shelf", "page-tasks", "page-today-day",
     "page-shelf-phone-ask", "oyenza-money", "page-oyenza", "page-oyenza-signin", "page-settings", "page-system",
     "page-shelf-pairing", "page-addons", "page-prayer", "prayer-countdown",
     "game-stats", "page-system-games", "page-system-power-estimate", "page-script", "page-script-reading", "media-lyric",
@@ -102,7 +102,7 @@ KEEP = {
 }
 # The Pill section: the island at rest (clock and status bar looks), playing music (the line being
 # sung), a timer, a pop-up and a notice, and open on the Music page.
-PILL_KEEP = {"idle-clock", "idle-status", "media-activity", "timer-activity", "volume-hud", "health-notice", "page-media"}
+PILL_KEEP = {"idle-clock", "idle-status", "media-activity", "timer-activity", "volume-hud", "page-media"}
 # Glass pictures keep the page under the island: the glass is made of it.
 # By run: the open island in light and dark mode, and the resting island
 # over a bright page and over a dark one with Windows still in light mode.
@@ -110,7 +110,7 @@ GLASS_KEEP = {"light": {"page-media", "media-activity"}, "dark": {"page-media"},
 # Mac pictures, with the notch: the resting states sit in the menu bar's line,
 # cut to its middle (MAC_STRIP, in pixels at 200 %); the open pages hang below
 # the notch and are kept whole.
-MAC_KEEP = {"idle-clock", "media-activity", "timer-activity", "page-media", "page-today-day", "page-stocks", "page-notes-listening", "notes-activity", "page-ielts", "page-downloads"}
+MAC_KEEP = {"idle-clock", "media-activity", "timer-activity", "page-media", "page-today-day", "page-notes-listening", "notes-activity", "page-downloads"}
 MAC_STRIP = (840, 136)
 # Pill on a Mac: what hangs below the notch (the line being sung, pop-ups) floats there, so its
 # strips are cut taller to keep the pill and its shadow; the resting island stays in the ears.

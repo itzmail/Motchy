@@ -1,9 +1,8 @@
 //! Add-ons page, the "+" at the end of the tab row: features only the people
 //! who switch them on get (`poni_core::addons`). Most download then; Script
-//! reader, System, Health, Stocks, Notifications and IELTS are already in
-//! the app and only show their pages (System's readings, Health's steps,
-//! Stocks' prices and Notifications' listening also run only while they are
-//! on; IELTS only while a session runs).
+//! reader, System and Notifications are already in
+//! the app and only show their pages (System's readings and
+//! Notifications' listening also run only while they are on).
 //!
 //! One row per add-on: its icon, its name, what it does (or where its
 //! download stands, with a bar while it comes in), its size while it is off,
@@ -18,8 +17,8 @@
 //! Windows has ([`rows`]). Eight rows (the recorder's with them) are one
 //! line each: the name, then the line after it.
 //!
-//! A Studio Pro add-on's row says Pro where its size was. IELTS and the
-//! Downloader are listed only for an account with Pro ([`rows`]); the
+//! A Studio Pro add-on's row says Pro where its size was. The
+//! Downloader is listed only for an account with Pro ([`rows`]); the
 //! Downloader's tools come only with it ([`needs_pro`]).
 
 use crate::commands::Command;
@@ -67,8 +66,7 @@ pub fn height(st: &AppState) -> f32 {
 /// The page's rows: every add-on offered, Screen recorder only once Oyenza
 /// Studio Recorder is installed and has spoken to the island
 /// (`AppState::recorder_ready`), Notifications only on Windows (a Mac has
-/// no way to read other apps' notifications), IELTS only for an account the
-/// server says has Studio Pro, Downloader only where it's offered
+/// no way to read other apps' notifications), Downloader only where it's offered
 /// (`AppState::downloader_offered`).
 fn rows(st: &AppState) -> Vec<&'static Addon> {
     OFFERED
@@ -77,7 +75,6 @@ fn rows(st: &AppState) -> Vec<&'static Addon> {
         .filter(|a| a.id != addons::SCREEN_RECORDER.id || st.recorder_ready())
         .filter(|a| a.id != addons::NOTIFICATIONS.id || cfg!(windows))
         .filter(|a| a.id != addons::DOWNLOADER.id || (st.downloader_offered && st.studio_pro() == Some(true)))
-        .filter(|a| a.id != addons::IELTS.id || st.studio_pro() == Some(true))
         .collect()
 }
 
@@ -124,12 +121,9 @@ fn icon(a: &Addon) -> Icon {
         "ja" => Icon::Lyrics,
         "script" => Icon::Script,
         "system" => Icon::Gauge,
-        "health" => Icon::Steps,
-        "stocks" => Icon::Stocks,
         "notifications" => Icon::Bell,
         "recorder" => Icon::Recorder,
         "downloader" => Icon::Download,
-        "ielts" => Icon::Mic,
         "notes" => Icon::Notes,
         _ => Icon::Addons,
     }
@@ -239,13 +233,13 @@ mod tests {
         let mut st = AppState::new(Settings::default(), Store::default());
         let without = rows(&st).len();
         // Oyenza Studio Recorder installed, and signed in with Pro where the
-        // Downloader is offered: the recorder, IELTS and the Downloader join.
+        // Downloader is offered: the recorder and the Downloader join.
         st.recorder = true;
         st.store.recorder_island = true;
         st.downloader_offered = true;
         st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
         st.oyenza.pro = Some(true);
-        assert_eq!(rows(&st).len(), without + 3);
+        assert_eq!(rows(&st).len(), without + 2);
         assert!(height(&st) <= MAX_H, "the window never grows for this page");
         let h = row_h(rows(&st).len());
         assert!(h < TWO_LINES, "that many rows are a line each");

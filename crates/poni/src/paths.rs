@@ -105,12 +105,6 @@ pub fn addons_dir() -> PathBuf {
     cache_dir().join("addons")
 }
 
-/// The IELTS page's audio: Oyen's clips and the answer being recorded, each
-/// deleted once used (local, never roaming).
-pub fn ielts_dir() -> PathBuf {
-    cache_dir().join("ielts")
-}
-
 /// A meeting being recorded or handed over for notes: its audio parts, one
 /// folder a meeting (local, never roaming). A folder goes once its notes are
 /// saved or the recording is thrown away.

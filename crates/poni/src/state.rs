@@ -10,7 +10,6 @@ use crate::pages::PageKind;
 use poni_core::addons::Status as AddonStatus;
 use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
-use poni_core::health::HealthSnapshot;
 use poni_core::lrc::Lyrics;
 use poni_core::oyenza::{Activity, Bill, DayPick, Saved, Seen};
 use poni_core::phonedrop::QrMatrix;
@@ -362,8 +361,6 @@ pub struct PageUiState {
     /// the side of the camera they peek out from (`mac/notch.rs`).
     #[cfg(target_os = "macos")]
     pub peek: poni_core::peek::Peek,
-    /// The Stocks page: its scroll, search, edit mode and chart animation.
-    pub stocks: crate::pages::stocks::StocksUi,
     /// The Downloads page: its link field, mode and scroll.
     pub downloads: crate::pages::downloads::DownloadsUi,
     /// The AI tab's own state while it shows (`pages::usage`).
@@ -515,56 +512,6 @@ pub enum CityFile {
     Here(std::sync::Arc<World>),
     /// Offline, or the website didn't answer.
     Failed,
-}
-
-/// The Stocks add-on's prices, kept in memory only (the list itself is
-/// `store.stocks`). Filled by `services::stocks` while the page is open.
-#[derive(Clone, Debug, Default)]
-pub struct StocksState {
-    /// The last answer, and the Unix time it came or was last confirmed unchanged.
-    pub board: Option<poni_core::stocks::Board>,
-    pub checked: Option<i64>,
-    /// Why the last ask failed, until one goes through.
-    pub trouble: Option<crate::services::stocks::Trouble>,
-    /// Every listed stock's name, once the search has asked for them.
-    pub names: Option<std::sync::Arc<poni_core::stocks::Names>>,
-    pub names_failed: bool,
-    /// Years of daily closes read this run, by code (the IHSG's too).
-    pub years: HashMap<String, poni_core::stocks::History>,
-    /// Codes whose year couldn't be read.
-    pub no_year: Vec<String>,
-}
-
-impl StocksState {
-    pub fn apply(&mut self, ev: crate::services::stocks::StocksEvent, unix: i64) {
-        use crate::services::stocks::StocksEvent;
-        match ev {
-            StocksEvent::Board(b) => {
-                self.board = Some(b);
-                self.checked = Some(unix);
-                self.trouble = None;
-            }
-            StocksEvent::Same => {
-                self.checked = Some(unix);
-                self.trouble = None;
-            }
-            StocksEvent::Failed(why) => self.trouble = Some(why),
-            StocksEvent::Names(n) => {
-                self.names = Some(n);
-                self.names_failed = false;
-            }
-            StocksEvent::NoNames => self.names_failed = true,
-            StocksEvent::History(h) => {
-                self.no_year.retain(|c| *c != h.code);
-                self.years.insert(h.code.clone(), h);
-            }
-            StocksEvent::NoHistory(code) => {
-                if !self.no_year.contains(&code) {
-                    self.no_year.push(code);
-                }
-            }
-        }
-    }
 }
 
 /// The Prayer times add-on's live state.
@@ -783,8 +730,6 @@ pub struct AppState {
     pub ui: PageUiState,
     /// System accent colour (falls back to blue).
     pub accent: Color,
-    /// Steps from the person's phone, sent by Oyenza (None until connected).
-    pub health: Option<HealthSnapshot>,
     /// The page currently shown when expanded.
     pub page: PageKind,
     /// When playback went from playing to paused (the pill lingers 30 s).
@@ -822,8 +767,6 @@ pub struct AppState {
     /// the Record tab can show (`record_on`). Asked at start, as the island
     /// opens and when the recorder writes, never at rest.
     pub recorder: bool,
-    /// The Stocks add-on's prices (its list: `store.stocks`).
-    pub stocks: StocksState,
     /// The Downloads page's jobs (`poni_core::downloads`), in memory only.
     pub downloads: poni_core::downloads::Jobs,
     /// This app offers the Downloader: Windows outside the Microsoft Store
@@ -835,8 +778,6 @@ pub struct AppState {
     pub notify_access: NotifyAccess,
     /// The AI tab's readings (its choices: `settings.usage`).
     pub usage: UsageState,
-    /// The IELTS page's session with Oyen (the IELTS add-on).
-    pub ielts: poni_core::ielts::Coach,
     /// The Notes page's meeting (the Meeting notes add-on).
     pub notes: poni_core::notes::Taker,
     /// Side effects requested during the frame.
@@ -856,16 +797,9 @@ impl AppState {
         self.page == PageKind::Script && self.script.active
     }
 
-    /// An IELTS session under way keeps the open island from closing (a
-    /// question, an answer being recorded or on its way), while that page is
-    /// on screen.
-    pub fn ielts_holds_island(&self) -> bool {
-        self.page == PageKind::Ielts && self.ielts.holds()
-    }
-
     /// Something on the page on screen keeps the open island from closing.
     pub fn page_holds_island(&self) -> bool {
-        self.phone_holds_island() || self.script_holds_island() || self.ielts_holds_island()
+        self.phone_holds_island() || self.script_holds_island()
     }
 
     pub fn new(settings: Settings, store: Store) -> Self {
@@ -895,7 +829,6 @@ impl AppState {
             app_icons: HashMap::new(),
             ui: PageUiState::default(),
             accent: palette::BLUE,
-            health: None,
             page,
             media_paused_at: None,
             pinned: false,
@@ -912,36 +845,30 @@ impl AppState {
             script_note: None,
             script_hidden: None,
             recorder: false,
-            stocks: StocksState::default(),
             downloads: poni_core::downloads::Jobs::default(),
             downloader_offered: false,
             rec: RecView::default(),
             notify_access: NotifyAccess::Unknown,
             usage: UsageState::default(),
-            ielts: Default::default(),
             notes: Default::default(),
             cmds: Vec::new(),
         };
         // A list from a hand-edited file keeps to codes, each once, ten at most.
-        st.store.stocks.tidy();
         // On ones start by checking their files (the worker reports back);
         // one without files is ready at once.
         for a in poni_core::addons::ALL {
             let on = st.settings.addon_on(a.id);
             st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
         }
-        // Last open on the Script, System, Health, Stocks, IELTS or Notes
+        // Last open on the Script, System or Notes
         // page, since switched off, or on a tab since hidden: open on the
         // first tab.
         let off = match st.page {
             PageKind::Script => !st.script_on(),
             PageKind::System => !st.system_on(),
-            PageKind::Health => !st.health_on(),
-            PageKind::Stocks => !st.stocks_on(),
             PageKind::Downloads => !st.downloader_on(),
             PageKind::Record => !st.record_on(),
             PageKind::Notifications => !st.notifications_on(),
-            PageKind::Ielts => !st.ielts_on(),
             PageKind::Notes => !st.notes_on(),
             p => st.tab_hidden(p),
         };
@@ -999,17 +926,6 @@ impl AppState {
         self.addon(poni_core::addons::SYSTEM.id) == AddonStatus::Ready
     }
 
-    /// The Health add-on is on: the Health tab shows and the steps are asked for.
-    pub fn health_on(&self) -> bool {
-        self.addon(poni_core::addons::HEALTH.id) == AddonStatus::Ready
-    }
-
-    /// The Stocks add-on is on: the Stocks tab shows (its prices are asked
-    /// for only while the page is on screen).
-    pub fn stocks_on(&self) -> bool {
-        self.addon(poni_core::addons::STOCKS.id) == AddonStatus::Ready
-    }
-
     /// The Downloader add-on is on, with its tools in place, for an account
     /// with Studio Pro: the Downloads tab shows.
     pub fn downloader_on(&self) -> bool {
@@ -1026,12 +942,6 @@ impl AppState {
     /// Shelf, Tasks or Focus).
     pub fn tab_hidden(&self, p: PageKind) -> bool {
         p.hideable() && self.settings.hidden_tabs.iter().any(|k| k == p.key())
-    }
-
-    /// The IELTS add-on is on, and the server hasn't said the account is
-    /// without Studio Pro: the IELTS tab shows (signed out, its sign-in card).
-    pub fn ielts_on(&self) -> bool {
-        self.addon(poni_core::addons::IELTS.id) == AddonStatus::Ready && self.oyenza.pro != Some(false)
     }
 
     /// The signed-in account has Studio Pro, as the server last said.
@@ -1066,17 +976,6 @@ impl AppState {
         let (m, _) = poni_core::prayer::countdown(&site, self.prayer_now(), self.settings.prayer.remind_before_min)?;
         self.prayer.countdown_ok = Some(m.at);
         Some(m)
-    }
-
-    /// New steps from the phone (`None`: none to show), kept in memory only,
-    /// never in data.json. Returns today's steps when they just passed the
-    /// goal; the first numbers after start or sign-in only set the baseline
-    /// (`poni_core::health::goal_notice`).
-    pub fn take_health(&mut self, next: Option<HealthSnapshot>) -> Option<u32> {
-        let today = self.local.day_key();
-        let reached = next.as_ref().filter(|n| poni_core::health::goal_notice(self.health.as_ref(), n, &today)).map(|n| n.steps_on(&today));
-        self.health = next;
-        reached
     }
 
     /// Show `n` now or, while a full-screen app hides the island (`hidden`), keep
@@ -1248,33 +1147,11 @@ mod tests {
     }
 
     #[test]
-    fn the_goal_notice_is_only_for_steps_seen_passing_it() {
-        use poni_core::health::{HealthDay, HealthSource};
-        let mut st = AppState::new(Settings::default(), Store::default());
-        st.local = LocalDateTime { year: 2026, month: 10, day: 24, hour: 15, minute: 20, second: 0 };
-        let snap = |steps: u32| HealthSnapshot {
-            goal: 8000,
-            source: HealthSource::AppleHealth,
-            updated_at: 0,
-            days: vec![HealthDay { date: "2026-10-24".into(), steps, distance_m: None, active_kcal: None }],
-        };
-        // Over the goal in the first numbers after start: a baseline, no notice (a restart never repeats it).
-        assert_eq!(st.take_health(Some(snap(9000))), None);
-        assert_eq!(st.health.as_ref().map(|h| h.steps_on("2026-10-24")), Some(9000));
-        // Off in Oyenza: nothing kept; the numbers after it are a baseline again.
-        assert_eq!(st.take_health(None), None);
-        assert!(st.health.is_none());
-        assert_eq!(st.take_health(Some(snap(7900))), None);
-        assert_eq!(st.take_health(Some(snap(8010))), Some(8010));
-        assert_eq!(st.take_health(Some(snap(8500))), None);
-    }
-
-    #[test]
     fn the_goal_notice_waits_while_a_full_screen_app_hides_the_island() {
         let mut st = AppState::new(Settings::default(), Store::default());
         st.now = 100.0;
         let notice = |title: &str| Notice {
-            icon: Icon::Steps,
+            icon: Icon::Timer,
             color: palette::GREEN,
             title: title.into(),
             title_dim: String::new(),

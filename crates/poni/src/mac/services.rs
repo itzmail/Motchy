@@ -49,9 +49,6 @@ pub mod addons;
 // And the Downloader add-on's runner (a process group per download here).
 #[path = "../services/downloader.rs"]
 pub mod downloader;
-// And the IELTS coach's calls (its microphone and voice are the Mac's: mic.rs, voice.rs).
-#[path = "../services/ielts.rs"]
-pub mod ielts;
 // And Meeting notes' recording and handing over (its sources: capture.rs).
 #[path = "../services/notes.rs"]
 pub mod notes;
@@ -66,9 +63,6 @@ pub mod oyenza;
 // And the update file's reader, which runs on the add-ons' thread.
 #[path = "../services/update.rs"]
 pub mod update;
-// And the Stocks page's prices from oyenza.trade.
-#[path = "../services/stocks.rs"]
-pub mod stocks;
 // And the AI tab's worker (`studio_usage` does the reading).
 #[path = "../services/usage.rs"]
 pub mod usage;
@@ -88,8 +82,6 @@ pub mod sysmon;
 pub mod sysstats;
 #[path = "services/thumbs.rs"]
 pub mod thumbs;
-#[path = "services/voice.rs"]
-pub mod voice;
 
 use objc2_app_kit::{NSColor, NSColorSpace, NSSound, NSWorkspace};
 use objc2_foundation::{NSArray, NSFileManager, NSString, NSURL};
