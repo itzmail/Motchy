@@ -2,6 +2,16 @@
 
 Codex, Claude Code, Kimi or any other agent working in this repo: read this before you change the app, cut a release or change the website.
 
+## Branches and remotes (Motchy fork)
+
+This repo is being turned into Motchy, a developer-first productivity app. Branch roles:
+
+- **`main` is sync-only.** It tracks `upstream/main` (the original `lucacadalora/oyenza-studio`) so new upstream features can be pulled in and ported to Motchy. Never commit Motchy work to `main`, never rebrand or remove features there. Only fast-forward it from `upstream/main`.
+- **`motchy` is the Motchy app branch.** All Motchy work (feature removal, rebrand, new features, docs, CI) happens here, or on branches cut from it. New upstream changes reach Motchy by merging or cherry-picking from `main` into `motchy`.
+- Remotes: `upstream` is the original repo (read-only, never push), `motchy` is `itzmail/Motchy` (push `motchy` work here), `origin` is the old fork `itzmail/oyenza-studio`.
+- Before any edit or commit, run `git branch --show-current`. If it says `main`, stop and switch to `motchy`.
+- Do not commit or push unless the maintainer asks.
+
 ## Keep it light
 
 Oyenza Studio sits on screen all day, so how little it costs is part of the product. The maintainer's rule (24 Oct 2026): keep it very light on CPU, memory and download size, and fast, however many features it gets. Every change follows these:
