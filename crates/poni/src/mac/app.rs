@@ -12,7 +12,7 @@
 
 use crate::activities::{self, Mode};
 use crate::clock;
-use crate::commands::{Command, MediaCmd, OyenzaCmd, PhoneCmd, Sound, UsageCmd};
+use crate::commands::{Command, MediaCmd, OyenzaCmd, Sound, UsageCmd};
 use crate::events::{AppEvent, EventSink, OyenzaEvent};
 use crate::gfx::{scale_about, union_rect, Canvas, Gfx, Matrix3x2};
 use crate::glass;
@@ -29,7 +29,7 @@ use crate::settings_host;
 use crate::settings_window::{self, Section};
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{
-    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PhoneAsk, PhoneDrop, PhoneTransfer, PrayerState,
+    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PrayerState,
     VolumeState,
 };
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
@@ -44,7 +44,6 @@ use objc2_core_graphics::CGContext;
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSRunLoop, NSRunLoopCommonModes, NSTimer};
 use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES, SYSTEM};
 use poni_core::frametime::MotionStats;
-use poni_core::phonedrop::{Event as PhoneEvent, QrMatrix};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::look::{Look, Material};
 use poni_core::oyenza;
@@ -79,8 +78,6 @@ const CONTENT_SCALE_FROM: f32 = 0.94;
 const CONTENT_DROP: f32 = 6.0;
 /// Smallest scale the outgoing content shrinks to as the outline narrows.
 const GHOST_MIN_SCALE: f32 = 0.6;
-/// Phone drop closes itself after this long without a request from a phone.
-const PHONE_IDLE_S: f64 = 600.0;
 /// The hidden resting island's height, and how much taller the floating
 /// one is when it has faded all the way in.
 const HIDDEN_SLIVER: f32 = 5.0;
@@ -486,10 +483,6 @@ pub struct App {
     script_shown: bool,
     /// Shelf items waiting to be dragged out (started by the next drag event).
     pending_drag: Option<Vec<String>>,
-    /// Phone drop's web server while the Shelf's phone panel is open, and the
-    /// shelf files it offers.
-    phone: Option<services::phonedrop::PhoneDrop>,
-    phone_offer: Vec<String>,
     /// What Music and Spotify play, and the lyrics worker.
     media: Option<services::media::MediaService>,
     lyrics: Option<services::lyrics::LyricsService>,
@@ -622,8 +615,6 @@ impl App {
             script_held: false,
             script_shown: false,
             pending_drag: None,
-            phone: None,
-            phone_offer: Vec::new(),
             media: None,
             lyrics: None,
             addons: None,
@@ -822,7 +813,7 @@ impl App {
                 }
             }
             Timer::Collapse => {
-                if !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && self.input.pressed_id.is_none() && !self.phone_holds() {
+                if !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && self.input.pressed_id.is_none() && !self.page_holds() {
                     self.collapse();
                 }
             }
@@ -830,7 +821,6 @@ impl App {
             Timer::Save => self.save_now(),
             Timer::Minute => {
                 self.schedule_minute_timer();
-                self.close_idle_phone();
                 // A prayer's time comes on a whole minute, frames or not
                 // (the displays may sleep).
                 self.refresh_time();
@@ -1677,7 +1667,6 @@ impl App {
             }
             AppEvent::ScreensAsleep(on) => self.set_away(Some(on), None),
             AppEvent::Locked(on) => self.set_away(None, Some(on)),
-            AppEvent::Phone(e) => self.on_phone(e),
             AppEvent::Addon { id, status } => self.on_addon(id, status),
             AppEvent::Notes(reply) => self.notes_reply(*reply),
             AppEvent::NotesStopped(issue) => self.notes_stopped(issue),
@@ -2488,7 +2477,7 @@ impl App {
     }
 
     fn maybe_schedule_collapse(&mut self) {
-        if self.expanded && !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && !self.phone_holds() {
+        if self.expanded && !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && !self.page_holds() {
             self.set_timer(Timer::Collapse, self.st.settings.collapse_delay_ms.max(50));
         }
     }
@@ -2668,10 +2657,6 @@ impl App {
                     self.st.ui.autostart = Some(services::login::status() == Login::On);
                     self.refresh_menu();
                 }
-                Command::Phone(c) => self.phone_cmd(c),
-                // Paired phones come to the Mac in a later slice (its Shelf
-                // shows no Pair a phone yet).
-                Command::Pair(_) => {}
                 Command::Oyenza(c) => self.oyenza(c),
                 Command::GetCities(file) => services::cities::fetch(file, self.sink.clone()),
                 // Notifications is a Windows add-on: a Mac can't read other apps' notifications.
@@ -2681,7 +2666,6 @@ impl App {
                 Command::Notes(c) => self.notes_cmd(c),
             }
         }
-        self.sync_phone_offer();
     }
 
     // ------------------------------------------------------------ AI usage
@@ -3035,152 +3019,9 @@ impl App {
         self.oyenza_notice(icon, palette::ORANGE, oyenza::bill_title(&b, today), shown, hidden);
     }
 
-    // ------------------------------------------------------------ phone drop
-
-    /// The QR code waits for a phone, or a phone waits for an answer (Shelf
-    /// page only), or a reading is under way (Script page only).
-    fn phone_holds(&self) -> bool {
+    /// A reading is under way (Script page only): the island stays open.
+    fn page_holds(&self) -> bool {
         self.st.page_holds_island()
-    }
-
-    fn phone_cmd(&mut self, c: PhoneCmd) {
-        match c {
-            PhoneCmd::Open => self.open_phone(),
-            PhoneCmd::Close => self.close_phone(),
-            PhoneCmd::Answer { id, accept } => {
-                if let Some(svc) = &self.phone {
-                    svc.answer(id, accept);
-                }
-                let until = self.st.now + pages::shelf::PHONE_OUTCOME_S;
-                if let Some(pd) = self.st.phone.as_mut() {
-                    if let Some(a) = pd.ask.take_if(|a| a.id == id) {
-                        if accept {
-                            pd.transfer = Some(PhoneTransfer { id, from: a.from, file: 0, files: a.files.len(), done: 0, total: a.total });
-                        } else {
-                            pd.outcome = Some((format!("Declined {} from {}", files_label(a.files.len()), a.from), false, until));
-                        }
-                    }
-                }
-                self.maybe_schedule_collapse();
-            }
-        }
-    }
-
-    fn open_phone(&mut self) {
-        if let Some(old) = self.phone.take() {
-            old.stop();
-        }
-        let mut pd = PhoneDrop::default();
-        let offer = self.st.store.shelf.paths();
-        match services::phonedrop::PhoneDrop::start(self.sink.clone(), offer.iter().map(PathBuf::from).collect()) {
-            Ok((svc, url)) => {
-                pd.qr = QrMatrix::encode(&url);
-                pd.url = url;
-                self.phone_offer = offer;
-                self.phone = Some(svc);
-            }
-            Err(e) => {
-                pwarn!("phone drop: {e}");
-                pd.error = Some(e);
-            }
-        }
-        self.st.phone = Some(pd);
-        self.st.page = PageKind::Shelf;
-        self.expand();
-    }
-
-    fn close_phone(&mut self) {
-        if let Some(svc) = self.phone.take() {
-            svc.stop();
-        }
-        self.st.phone = None;
-        self.phone_offer.clear();
-        self.maybe_schedule_collapse();
-        self.request_frame();
-    }
-
-    /// Minute tick: nobody has used the link for a while, so close it.
-    fn close_idle_phone(&mut self) {
-        let idle = self.phone.as_ref().is_some_and(|svc| !svc.busy() && svc.idle_secs() >= PHONE_IDLE_S);
-        let quiet = self.st.phone.as_ref().is_some_and(|p| p.ask.is_none() && p.transfer.is_none());
-        if idle && quiet {
-            pinfo!("phone drop: closed after {:.0} minutes without a phone", PHONE_IDLE_S / 60.0);
-            self.close_phone();
-        }
-    }
-
-    /// Keep the files a phone can save in step with the Shelf.
-    fn sync_phone_offer(&mut self) {
-        let Some(svc) = &self.phone else { return };
-        let paths = self.st.store.shelf.paths();
-        if paths != self.phone_offer {
-            svc.set_offer(paths.iter().map(PathBuf::from).collect());
-            self.phone_offer = paths;
-        }
-    }
-
-    fn on_phone(&mut self, e: PhoneEvent) {
-        let now = self.st.now;
-        let until = now + pages::shelf::PHONE_OUTCOME_S;
-        let Some(pd) = self.st.phone.as_mut() else { return };
-        match e {
-            PhoneEvent::Visit { from } => {
-                pd.visitor = Some(from);
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Ask(a) => {
-                pd.outcome = None;
-                pd.visitor.get_or_insert_with(|| a.from.clone());
-                let files: Vec<(String, u64)> = a.files.iter().map(|f| (f.name.clone(), f.size)).collect();
-                pinfo!("phone drop: {} asks to send {}", a.from, files_label(files.len()));
-                pd.ask = Some(PhoneAsk { id: a.id, from: a.from.clone(), total: a.total(), files });
-                self.st.page = PageKind::Shelf;
-                self.expand();
-                self.st.chime();
-            }
-            PhoneEvent::AskEnded { id } => {
-                if let Some(a) = pd.ask.take_if(|a| a.id == id) {
-                    pd.outcome = Some((format!("{} stopped waiting", a.from), false, until));
-                }
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Progress { id, file, files, done, total } => match pd.transfer.as_mut() {
-                Some(t) if t.id == id => {
-                    t.file = file;
-                    t.files = files;
-                    t.done = done;
-                    t.total = total;
-                }
-                _ => {
-                    let from = pd.visitor.clone().unwrap_or_else(|| "Phone".into());
-                    pd.transfer = Some(PhoneTransfer { id, from, file, files, done, total });
-                }
-            },
-            PhoneEvent::Received { from, paths, .. } => {
-                pd.transfer = None;
-                let n = paths.len();
-                let title = format!("{} from {from} {} on the Shelf", files_label(n), if n == 1 { "is" } else { "are" });
-                pd.outcome = Some((title.clone(), true, until));
-                let added: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                self.st.store.shelf.add_paths(&added, self.st.unix);
-                for p in added {
-                    self.st.cmds.push(Command::LoadThumb(p));
-                }
-                self.st.save();
-                pinfo!("phone drop: {} from {from}", files_label(n));
-                if !self.expanded {
-                    self.st.notify(Icon::Phone, palette::GREEN, title, "Open the Shelf to see them", 6.0, Some(NoticeAction::OpenPage(PageKind::Shelf)));
-                }
-                self.st.chime();
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Failed { from, reason, detail, .. } => {
-                pd.transfer = None;
-                pd.outcome = Some((format!("Nothing kept from {from}. {reason}."), false, until));
-                pwarn!("phone drop: transfer from {from} failed: {reason} {detail}");
-                self.maybe_schedule_collapse();
-            }
-        }
     }
 
     // ------------------------------------------------------------ frames
@@ -4764,10 +4605,6 @@ fn smoke_shelf_files() -> Vec<String> {
     let sketch = base.join("Harbor sketch.png");
     let _ = crate::png::save_pbgra(&sketch, 240, 240, &crate::render::make_art(240));
     [sketch, notes, folder].iter().map(|p| p.to_string_lossy().into_owned()).collect()
-}
-
-fn files_label(n: usize) -> String {
-    format!("{n} {}", if n == 1 { "file" } else { "files" })
 }
 
 /// Name of a morph for the motion log.

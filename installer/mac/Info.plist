@@ -41,9 +41,9 @@
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
-	<!-- Shown if macOS asks before the Downloader (or Phone drop) reaches a file in Downloads it didn't make, such as a stopped download's unfinished file. -->
+	<!-- Shown if macOS asks before the app reaches a file in Downloads it didn't make. -->
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>Oyenza Studio saves the videos and sounds you download, and the files you send from your phone, in Downloads.</string>
+	<string>Oyenza Studio opens files from Downloads that you put on the Shelf.</string>
 	<!-- Shown when Meeting notes first records the Mac's own sound (a Core Audio tap, only while a meeting is recorded). -->
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Oyen listens to the voices of your call, from your Mac's own sound, to write your meeting notes.</string>

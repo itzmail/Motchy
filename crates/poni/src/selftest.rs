@@ -41,7 +41,7 @@ use crate::paths;
 use crate::png;
 use crate::state::{
     AgendaState, AppState, CityFile, Hud, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink,
-    OyenzaState, PhoneAsk, PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, PrayerState, SysStats, VolumeState,
+    OyenzaState, PowerState, PrayerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
 use poni_core::addons::{Status as AddonStatus, MEETING_NOTES, NOTIFICATIONS, PRAYER_TIMES, SCRIPT_READER, SYSTEM};
@@ -49,7 +49,6 @@ use poni_core::notifications::NotificationSettings;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::lrc::{parse_lrc, Lyrics};
 use poni_core::oyenza::{Activity, Bill, Day, DayPick, Saved, Seen, Txn, WalletRef};
-use poni_core::phonedrop::QrMatrix;
 use poni_core::prayer::{PlaceList, World};
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::power::PowerReading;
@@ -159,52 +158,6 @@ const LYRICS_LRC: &str = "\
 const NOTES_TXT: &str = "Weekend trip\n\n- ferry leaves at 9:40\n- pack the blue jacket\n- ask about the lighthouse tour\n";
 
 const GIB: u64 = 1024 * 1024 * 1024;
-
-/// The phone-drop link in the screenshots. Made up: no server answers it.
-const PHONE_URL: &str = "HTTP://192.168.1.20:53530/K7Q2M9XWZ4R8T6YB3NPV5HJC2D/";
-
-/// The pairing link in the screenshots: the contract's test secret, so no
-/// real pair can use it.
-const PAIR_URL: &str = "https://drop.oyenza.com/p#k=AAECAwQFBgcICQoLDA0ODw";
-
-/// Paired phones as the pairing scenes show them (made up).
-fn fake_paired(scene: Scene, unix: i64) -> Vec<PairedPhone> {
-    match scene {
-        Scene::ShelfPaired | Scene::ShelfPairedPhones | Scene::PairedNotice => vec![
-            PairedPhone { room: "geDM0jEhk4eiOz_li-FtORW2YlPBbebr7NsHjLkHI_4".into(), name: "Pixel 10".into(), seen: unix - 5 * 60 },
-            PairedPhone { room: "ZmFrZS1yb29tLWZvci10aGUtc2VsZi10ZXN0LWlwaG9u".into(), name: "iPhone".into(), seen: unix - 2 * 86_400 - 3600 },
-        ],
-        _ => Vec::new(),
-    }
-}
-
-/// Phone drop as each phone scene shows it (None = closed).
-fn fake_phone(scene: Scene, now: f64) -> Option<PhoneDrop> {
-    let ready = PhoneDrop { url: PHONE_URL.into(), qr: QrMatrix::encode(PHONE_URL), ..Default::default() };
-    let files = vec![("IMG_2041.HEIC".to_string(), 2_480_112u64), ("IMG_2042.HEIC".to_string(), 2_391_870), ("Harbor walk.mov".to_string(), 18_402_331)];
-    let total = files.iter().map(|f| f.1).sum();
-    match scene {
-        Scene::ShelfPhone => Some(ready),
-        Scene::ShelfPhoneAsk => Some(PhoneDrop {
-            visitor: Some("iPhone".into()),
-            ask: Some(PhoneAsk { id: 7, from: "iPhone".into(), files, total }),
-            ..ready
-        }),
-        Scene::ShelfPhoneReceive => Some(PhoneDrop {
-            visitor: Some("iPhone".into()),
-            transfer: Some(PhoneTransfer { id: 7, from: "iPhone".into(), file: 2, files: 3, done: 9_100_000, total }),
-            ..ready
-        }),
-        Scene::ShelfPairing => Some(PhoneDrop { view: PhoneView::Pairing { url: PAIR_URL.into(), qr: QrMatrix::encode(PAIR_URL), until: now + 580.0 }, ..ready }),
-        Scene::ShelfPaired => Some(PhoneDrop {
-            outcome: Some(("Pixel 10 is paired".into(), true, now + 60.0)),
-            outcome_line: Some("It can now send from any network, even with this panel closed.".into()),
-            ..ready
-        }),
-        Scene::ShelfPairedPhones => Some(PhoneDrop { view: PhoneView::Paired, ..ready }),
-        _ => None,
-    }
-}
 
 /// Paths of the sample apps (keys for their icons only; never opened) and their tile colours.
 const SAMPLE_ICONS: [(&str, u32); 8] = [
@@ -810,14 +763,8 @@ enum Scene {
     Page(PageKind),
     /// The shelf while files are dragged over the island.
     ShelfDrop,
-    /// An empty shelf: the drop zone and the Phone drop tile.
+    /// An empty shelf: the drop zone.
     ShelfEmpty,
-    /// Phone drop open: the QR code waits for a phone.
-    ShelfPhone,
-    /// An iPhone asks to send three files.
-    ShelfPhoneAsk,
-    /// Files coming in from the iPhone.
-    ShelfPhoneReceive,
     /// Click the first header tab on the Today page; expect the Music page.
     TabClick,
     /// Oyenza: money arrived, its sum hidden behind Show.
@@ -850,14 +797,6 @@ enum Scene {
     SystemWaiting,
     /// Settings with Stay on top chosen for full-screen apps.
     SettingsStayOnTop,
-    /// Phone drop showing a pairing QR code (paired phones).
-    ShelfPairing,
-    /// A phone just finished pairing.
-    ShelfPaired,
-    /// The paired phones, each with Remove.
-    ShelfPairedPhones,
-    /// Files from a paired phone landed while the island was closed.
-    PairedNotice,
     /// System page: the graphics card.
     SystemGpu,
     /// Add-ons: Prayer times downloading.
@@ -1020,7 +959,7 @@ const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll
 Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
 No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
 
-const SCENES: [Scene; 106] = [
+const SCENES: [Scene; 99] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -1033,9 +972,6 @@ const SCENES: [Scene; 106] = [
     Scene::Page(PageKind::Focus),
     Scene::Page(PageKind::Shelf),
     Scene::ShelfDrop,
-    Scene::ShelfPhone,
-    Scene::ShelfPhoneAsk,
-    Scene::ShelfPhoneReceive,
     // Last of the shelf scenes: hiding the items resets their fade-in.
     Scene::ShelfEmpty,
     Scene::Page(PageKind::Tasks),
@@ -1061,10 +997,6 @@ const SCENES: [Scene; 106] = [
     Scene::SettingsStayOnTop,
     // Appended so the numbers of the screenshots above stay the same. They
     // show an empty shelf: items shown again after ShelfEmpty would fade in.
-    Scene::ShelfPairing,
-    Scene::ShelfPaired,
-    Scene::ShelfPairedPhones,
-    Scene::PairedNotice,
     Scene::SystemGpu,
     // The Add-ons page: off (the "+" tab), then each state of a download.
     Scene::Page(PageKind::Addons),
@@ -1177,9 +1109,6 @@ impl Scene {
             Scene::Page(p) => format!("page-{}", p.key()),
             Scene::ShelfDrop => "page-shelf-drop".into(),
             Scene::ShelfEmpty => "page-shelf-empty".into(),
-            Scene::ShelfPhone => "page-shelf-phone".into(),
-            Scene::ShelfPhoneAsk => "page-shelf-phone-ask".into(),
-            Scene::ShelfPhoneReceive => "page-shelf-phone-receive".into(),
             Scene::TabClick => "tab-click-media".into(),
             Scene::OyenzaMoney => "oyenza-money".into(),
             Scene::OyenzaMoneyShown => "oyenza-money-shown".into(),
@@ -1198,10 +1127,6 @@ impl Scene {
             Scene::SystemWaiting => "page-system-waiting".into(),
             Scene::SettingsStayOnTop => "page-settings-stay-on-top".into(),
             Scene::SettingsTabs => "page-settings-tabs".into(),
-            Scene::ShelfPairing => "page-shelf-pairing".into(),
-            Scene::ShelfPaired => "page-shelf-paired".into(),
-            Scene::ShelfPairedPhones => "page-shelf-paired-phones".into(),
-            Scene::PairedNotice => "paired-received-notice".into(),
             Scene::SystemGpu => "page-system-gpu".into(),
             Scene::AddonsDownloading => "page-addons-downloading".into(),
             Scene::AddonsOn => "page-addons-on".into(),
@@ -1261,7 +1186,7 @@ impl Scene {
     fn page(self) -> Option<PageKind> {
         match self {
             Scene::Page(p) => Some(p),
-            Scene::ShelfDrop | Scene::ShelfEmpty | Scene::ShelfPhone | Scene::ShelfPhoneAsk | Scene::ShelfPhoneReceive => Some(PageKind::Shelf),
+            Scene::ShelfDrop | Scene::ShelfEmpty => Some(PageKind::Shelf),
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::OyenzaSignedOut | Scene::OyenzaSignIn | Scene::OyenzaSaved | Scene::OyenzaYesterday | Scene::OyenzaTomorrow => Some(PageKind::Oyenza),
             Scene::GearClick
@@ -1280,7 +1205,6 @@ impl Scene {
             | Scene::SystemWaiting
             | Scene::SystemGpu
             | Scene::SystemPowerEstimate => Some(PageKind::System),
-            Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
             Scene::PrayerPicker | Scene::PrayerPickerWorld | Scene::PrayerWorld => Some(PageKind::Prayer),
             Scene::ScriptReading | Scene::ScriptRecorder => Some(PageKind::Script),
@@ -1366,35 +1290,6 @@ impl Scene {
 
     fn timer_running(self) -> bool {
         matches!(self, Scene::Timer | Scene::MediaTimer) || self.expanded()
-    }
-}
-
-/// GET the phone page from a running Phone drop server: the address must be
-/// reachable and the page must come back whole. The detail never includes
-/// the link's secret.
-pub fn fetch_phone_page(url: &str) -> (bool, String) {
-    use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpStream};
-    use std::time::Duration;
-    let rest = url.split_once("//").map_or(url, |(_, r)| r);
-    let (host, path) = rest.split_once('/').map_or((rest, ""), |(h, p)| (h, p));
-    let Ok(addr) = host.parse::<SocketAddr>() else {
-        return (false, format!("link has no address: {host}"));
-    };
-    let fetch = || -> std::io::Result<String> {
-        let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
-        s.set_read_timeout(Some(Duration::from_secs(5)))?;
-        write!(s, "GET /{path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: poni-selftest\r\n\r\n")?;
-        let mut out = String::new();
-        s.read_to_string(&mut out)?;
-        Ok(out)
-    };
-    match fetch() {
-        Ok(resp) if resp.starts_with("HTTP/1.1 200") && resp.contains("<title>Oyenza Studio") && resp.trim_end().ends_with("</html>") => {
-            (true, format!("served the page at {addr} ({} bytes)", resp.len()))
-        }
-        Ok(resp) => (false, format!("unexpected answer from {addr}: {}", resp.lines().next().unwrap_or(""))),
-        Err(e) => (false, format!("couldn't fetch the page at {addr}: {e}")),
     }
 }
 
@@ -1877,8 +1772,6 @@ impl SelfTest {
     /// Called every ~50 ms; returns Some(exit code) when finished.
     pub fn step(&mut self, app: &mut App) -> Option<i32> {
         if !self.dpi_applied {
-            let (ok, detail) = app.selftest_phone_drop();
-            self.checks.push(check("phone-drop-server", ok, detail));
             self.dpi_applied = true;
             if let Some(dpi) = self.dpi {
                 crate::pinfo!("selftest: rendering at {dpi} DPI ({:.0} %)", dpi as f32 / 96.0 * 100.0);
@@ -2398,10 +2291,7 @@ impl SelfTest {
         };
         // A new song's title shows for its few seconds (held here).
         st.ui.peek_until = if scene == Scene::AsidePeek { now + 30.0 } else { 0.0 };
-        st.phone = fake_phone(scene, now);
-        st.paired = fake_paired(scene, st.unix);
-        st.pair_server = (!st.paired.is_empty() || scene == Scene::ShelfPairing).then_some(true);
-        let empty_shelf = matches!(scene, Scene::ShelfEmpty | Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones);
+        let empty_shelf = scene == Scene::ShelfEmpty;
         st.store.shelf.items = if empty_shelf { Vec::new() } else { self.shelf_items.clone() };
         if !empty_shelf {
             for (path, thumb) in &self.shelf_thumbs {
@@ -2455,17 +2345,6 @@ impl SelfTest {
                     reveal: hidden.then(|| "Rp 1.250.000 · Gaji Oktober".into()),
                 })
             }
-            Scene::PairedNotice => Some(Notice {
-                icon: Icon::Phone,
-                color: palette::GREEN,
-                title: "3 files from Pixel 10 are on the Shelf".into(),
-                title_dim: String::new(),
-                subtitle: "Open the Shelf to see them".into(),
-                until,
-                action: Some(NoticeAction::OpenPage(PageKind::Shelf)),
-                inline: None,
-                reveal: None,
-            }),
             Scene::OyenzaMoneyOut => Some(Notice {
                 icon: Icon::MoneyOut,
                 color: palette::BLUE,

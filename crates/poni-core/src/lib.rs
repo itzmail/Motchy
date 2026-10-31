@@ -2,10 +2,8 @@
 //!
 //! Everything here is pure Rust with no OS calls so it can be unit-tested on
 //! any machine. The Windows crate (`poni`) owns all I/O and rendering and
-//! feeds clocks/dates into these types. Three modules use `std` I/O, which
-//! still runs anywhere: `store` (the JSON files), `phonedrop` (its small
-//! web server) and `pairdrop` (UDP sockets for the direct link to a paired
-//! phone), so the tests can drive them over real sockets.
+//! feeds clocks/dates into these types. `store` (the JSON files) uses `std`
+//! I/O, which still runs anywhere.
 
 pub mod addons;
 pub mod agenda;
@@ -25,9 +23,7 @@ pub mod notifications;
 pub mod nowplaying;
 pub mod oyen;
 pub mod oyenza;
-pub mod pairdrop;
 pub mod peek;
-pub mod phonedrop;
 pub mod pomodoro;
 pub mod power;
 pub mod prayer;

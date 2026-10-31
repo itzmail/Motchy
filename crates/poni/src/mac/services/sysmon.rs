@@ -39,7 +39,7 @@
 //! that fails is left out of the reading and logged once.
 
 use super::cf::{self, CFTypeRef};
-use super::{phonedrop, sysstats};
+use super::{netinfo, sysstats};
 use crate::events::{AppEvent, EventSink};
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::AnyObject;
@@ -766,8 +766,8 @@ impl Sampler {
     /// Where internet traffic goes (the address macOS would send it from),
     /// each interface's address, and the interfaces' names in System Settings.
     fn refresh_route(&mut self) {
-        self.ipv4s = phonedrop::interface_ipv4s();
-        let ip = phonedrop::route_ipv4();
+        self.ipv4s = netinfo::interface_ipv4s();
+        let ip = netinfo::route_ipv4();
         self.routed = ip.and_then(|ip| self.ipv4s.iter().find(|(_, a)| *a == ip).map(|(n, _)| n.clone()));
         if self.labels.is_empty() || self.ipv4s.iter().any(|(n, _)| n.starts_with("en") && !self.labels.contains_key(n)) {
             self.labels = interface_labels();

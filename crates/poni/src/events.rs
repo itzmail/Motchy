@@ -152,10 +152,6 @@ pub enum AppEvent {
     /// The System page's latest reading and the minute behind it
     /// (`services::sysmon`, each second while the page is open).
     System(Box<poni_core::sysmon::Monitor>),
-    /// Phone drop's server: a phone opened the page, asked, sent, gave up.
-    Phone(poni_core::phonedrop::Event),
-    /// Paired phones: pairing done, the list changed, files from a phone.
-    Paired(poni_core::pairdrop::MeetEvent),
     Oyenza(OyenzaEvent),
     /// Where an add-on's files stand (`services::addons`).
     Addon { id: &'static str, status: poni_core::addons::Status },

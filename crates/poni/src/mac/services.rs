@@ -1,7 +1,7 @@
 //! The Mac's side of what the island asks the system for: what plays (from
 //! macOS's own now playing, or Music and Spotify themselves), lyrics, the add-ons (Japanese readings, and Prayer times'
 //! location and adzan), power, volume, system stats, the System page's
-//! readings, the clipboard, Shelf tiles, Phone drop, full-screen apps,
+//! readings, the clipboard, Shelf tiles, full-screen apps,
 //! start at login and the AI tab's keychain reads (one file each), plus a
 //! few direct calls (the accent colour, opening and revealing files,
 //! sounds). Oyenza sign-in is the Windows app's worker, shared as is.
@@ -62,8 +62,8 @@ pub mod usage;
 pub mod location;
 #[path = "services/login.rs"]
 pub mod login;
-#[path = "services/phonedrop.rs"]
-pub mod phonedrop;
+#[path = "services/netinfo.rs"]
+pub mod netinfo;
 #[path = "services/power.rs"]
 pub mod power;
 #[path = "services/recorder.rs"]

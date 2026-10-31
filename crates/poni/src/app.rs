@@ -3,7 +3,7 @@
 
 use crate::activities::{self, Mode};
 use crate::clock;
-use crate::commands::{Command, MediaCmd, NotifyCmd, OyenzaCmd, PairCmd, PhoneCmd, UsageCmd};
+use crate::commands::{Command, MediaCmd, NotifyCmd, OyenzaCmd, UsageCmd};
 use crate::events::{AppEvent, AppleMusicStatus, EventSink, OyenzaEvent, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::{px_rect, px_union, scale_about, union_rect, Canvas, Gfx, HitMask};
 use crate::icons::Icon;
@@ -17,8 +17,7 @@ use crate::services::{self, Services};
 use crate::settings_host::{self, SettingsWindow};
 use crate::settings_window::Section;
 use crate::state::{
-    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, NotifyAccess, OyenzaLink, PairedPhone, PhoneAsk,
-    PhoneDrop, PhoneTransfer, PhoneView, PrayerState,
+    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, NotifyAccess, OyenzaLink, PrayerState,
 };
 use crate::tray::{self, Tray};
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
@@ -28,15 +27,12 @@ use poni_core::addons::Status as AddonStatus;
 use poni_core::frametime::{ambient_divisor, MotionStats};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::oyenza;
-use poni_core::pairdrop::{MeetEvent, PeerEvent};
-use poni_core::phonedrop::{Event as PhoneEvent, QrMatrix};
 use poni_core::prayer::{Due, PlaceList, Prayer, PrayerMoment};
 use poni_core::settings::{IdleStyle, PrayerSound, Settings, Theme};
 use poni_core::settings::MonitorChoice;
 use poni_core::store::{load_json, parse_json, save_json_atomic, LoadOutcome, Store};
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use windows::core::{w, Result};
 use windows::Foundation::Numerics::Matrix3x2;
@@ -79,8 +75,6 @@ const WTS_SESSION_UNLOCK_: usize = 8;
 
 /// Steps for copying the Apple Music token (README).
 const APPLE_MUSIC_HELP_URL: &str = "https://github.com/lucacadalora/oyenza-studio#apple-music-lyrics";
-/// Phone drop closes itself after this long without a request from a phone.
-const PHONE_IDLE_S: f64 = 600.0;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -487,12 +481,6 @@ pub struct App {
     /// the menu has left the island as far as Windows is concerned, so the
     /// menu holds the island open until it closes.
     menu_open: bool,
-    /// Phone drop's web server while the Shelf's phone panel is open.
-    phone: Option<services::phonedrop::PhoneDrop>,
-    /// The Shelf paths last handed to it (to notice changes).
-    phone_offer: Vec<String>,
-    /// The Shelf paths last handed to the paired-phones service.
-    pair_offer: Option<Vec<String>>,
     /// Whether the island floated when the window was last laid out (its
     /// room differs: see `sync_room`).
     laid_floating: bool,
@@ -530,7 +518,7 @@ const DWELL_SLOP: f32 = 4.0;
 /// (while it is still shrinking) opens it again at once, from where the
 /// outline is: overshooting an edge costs no close-and-reopen.
 const REOPEN_S: f64 = 0.3;
-/// A hold that kept the island open (typing, a file drag, Phone drop, the
+/// A hold that kept the island open (typing, a file drag, the
 /// pin) ended while the pointer is elsewhere: close after this grace, so
 /// the change can be seen.
 const HOLD_GRACE_MS: u32 = 380;
@@ -667,9 +655,6 @@ impl App {
             collapse_due: false,
             left_at: f64::NEG_INFINITY,
             menu_open: false,
-            phone: None,
-            phone_offer: Vec::new(),
-            pair_offer: None,
             laid_floating: false,
             updater: None,
             notify: None,
@@ -684,8 +669,6 @@ impl App {
         if !fake {
             self.services = Some(Services::start(&self.sink, self.hwnd, self.helper, &self.st.settings, self.oyenza_activity()));
             self.sync_top_watch();
-            self.st.paired = self.services.as_ref().map(|s| paired_phones(s.pairs())).unwrap_or_default();
-            self.sync_pair_offer();
             if self.st.settings.system_history_on() {
                 self.start_sysmon();
             }
@@ -725,9 +708,6 @@ impl App {
         self.settings_win = None;
         self.set_script_hotkey(false);
         self.glass.stop(self.hwnd, &mut self.gfx);
-        if let Some(p) = self.phone.take() {
-            p.stop();
-        }
         if let Some(t) = self.tray.take() {
             t.remove();
         }
@@ -1553,7 +1533,6 @@ impl App {
             }
             TIMER_MINUTE => {
                 self.schedule_minute_timer();
-                self.close_idle_phone();
             }
             TIMER_TRAY => {
                 unsafe {
@@ -2282,8 +2261,6 @@ impl App {
                 }
             }
             AppEvent::AppleMusic(status) => self.on_apple_music(status),
-            AppEvent::Phone(e) => self.on_phone(e),
-            AppEvent::Paired(e) => self.on_paired(e),
             AppEvent::Oyenza(ev) => self.on_oyenza(ev),
             AppEvent::Autostart(on) => self.st.ui.autostart = Some(on),
             AppEvent::Addon { id, status } => {
@@ -2436,9 +2413,9 @@ impl App {
     }
 
     /// Nothing holds the open island: no pointer on it, no pin, typing,
-    /// file drag, press or Phone drop.
+    /// file drag or press.
     fn free_to_collapse(&self) -> bool {
-        !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && self.input.pressed_id.is_none() && !self.phone_holds()
+        !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && self.input.pressed_id.is_none() && !self.page_holds()
     }
 
     /// The right-click menu closed: the island stays open with the pointer
@@ -2483,7 +2460,7 @@ impl App {
 
     /// A hold ended (see [`HOLD_GRACE_MS`]): close soon unless the pointer is on the island.
     fn maybe_schedule_collapse(&mut self) {
-        if self.expanded && !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && !self.phone_holds() {
+        if self.expanded && !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.menu_open && !self.page_holds() {
             unsafe {
                 SetTimer(self.hwnd, TIMER_COLLAPSE, HOLD_GRACE_MS.max(self.st.settings.collapse_delay_ms), None);
             }
@@ -4109,8 +4086,6 @@ impl App {
                     self.st.ui.autostart = Some(on);
                     crate::autostart::report(self.sink.clone(), Some(on));
                 }
-                Command::Phone(c) => self.phone_cmd(c),
-                Command::Pair(c) => self.pair_cmd(c),
                 Command::Oyenza(c) => self.oyenza(c),
                 Command::Usage(c) => self.usage_cmd(c),
                 Command::Notes(c) => self.notes_cmd(c),
@@ -4123,8 +4098,6 @@ impl App {
                 Command::Notify(c) => self.notify_cmd(c),
             }
         }
-        self.sync_phone_offer();
-        self.sync_pair_offer();
     }
 
     // ------------------------------------------------------------ notifications
@@ -4196,299 +4169,9 @@ impl App {
         }
     }
 
-    // ------------------------------------------------------------ phone drop
-
-    /// The QR code waits for a phone, or a phone waits for an answer (Shelf
-    /// page only), or a reading is under way (Script page only).
-    fn phone_holds(&self) -> bool {
+    /// A reading is under way (Script page only): the island stays open.
+    fn page_holds(&self) -> bool {
         self.st.page_holds_island()
-    }
-
-    fn phone_cmd(&mut self, c: PhoneCmd) {
-        match c {
-            PhoneCmd::Open => self.open_phone(),
-            PhoneCmd::Close => self.close_phone(),
-            PhoneCmd::Answer { id, accept } => {
-                if let Some(svc) = &self.phone {
-                    svc.answer(id, accept);
-                }
-                let until = self.st.now + pages::shelf::PHONE_OUTCOME_S;
-                if let Some(pd) = self.st.phone.as_mut() {
-                    if let Some(a) = pd.ask.take_if(|a| a.id == id) {
-                        if accept {
-                            pd.transfer = Some(PhoneTransfer { id, from: a.from, file: 0, files: a.files.len(), done: 0, total: a.total });
-                        } else {
-                            pd.outcome = Some((format!("Declined {} from {}", files_label(a.files.len()), a.from), false, until));
-                        }
-                    }
-                }
-                self.maybe_schedule_collapse();
-            }
-        }
-    }
-
-    fn open_phone(&mut self) {
-        if let Some(old) = self.phone.take() {
-            old.stop();
-        }
-        let mut pd = PhoneDrop::default();
-        if self.selftest.is_some() {
-            pd.error = Some("Phone drop is off in the self-test.".into());
-        } else {
-            let offer = self.st.store.shelf.paths();
-            match services::phonedrop::PhoneDrop::start(self.sink.clone(), offer.iter().map(PathBuf::from).collect()) {
-                Ok((svc, url)) => {
-                    pd.qr = QrMatrix::encode(&url);
-                    pd.url = url;
-                    self.phone_offer = offer;
-                    self.phone = Some(svc);
-                }
-                Err(e) => {
-                    pwarn!("phone drop: {e}");
-                    pd.error = Some(e);
-                }
-            }
-        }
-        self.st.phone = Some(pd);
-        self.st.page = PageKind::Shelf;
-        self.expand();
-    }
-
-    fn close_phone(&mut self) {
-        if let Some(svc) = self.phone.take() {
-            svc.stop();
-        }
-        if matches!(self.st.phone.as_ref().map(|p| &p.view), Some(PhoneView::Pairing { .. })) {
-            if let Some(s) = &self.services {
-                s.pair_cancel();
-            }
-        }
-        self.st.phone = None;
-        self.phone_offer.clear();
-        self.maybe_schedule_collapse();
-        self.request_frame();
-    }
-
-    /// Minute tick: nobody has used the link for a while, so close it.
-    fn close_idle_phone(&mut self) {
-        let idle = self.phone.as_ref().is_some_and(|svc| !svc.busy() && svc.idle_secs() >= PHONE_IDLE_S);
-        let quiet = self.st.phone.as_ref().is_some_and(|p| p.ask.is_none() && p.transfer.is_none());
-        if idle && quiet {
-            pinfo!("phone drop: closed after {:.0} minutes without a phone", PHONE_IDLE_S / 60.0);
-            self.close_phone();
-        }
-    }
-
-    /// Keep the files a phone can save in step with the Shelf.
-    fn sync_phone_offer(&mut self) {
-        let Some(svc) = &self.phone else { return };
-        let paths = self.st.store.shelf.paths();
-        if paths != self.phone_offer {
-            svc.set_offer(paths.iter().map(PathBuf::from).collect());
-            self.phone_offer = paths;
-        }
-    }
-
-    fn on_phone(&mut self, e: PhoneEvent) {
-        let now = self.st.now;
-        let until = now + pages::shelf::PHONE_OUTCOME_S;
-        let Some(pd) = self.st.phone.as_mut() else { return };
-        match e {
-            PhoneEvent::Visit { from } => {
-                pd.visitor = Some(from);
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Ask(a) => {
-                pd.outcome = None;
-                pd.visitor.get_or_insert_with(|| a.from.clone());
-                let files: Vec<(String, u64)> = a.files.iter().map(|f| (f.name.clone(), f.size)).collect();
-                pinfo!("phone drop: {} asks to send {}", a.from, files_label(files.len()));
-                pd.ask = Some(PhoneAsk { id: a.id, from: a.from.clone(), total: a.total(), files });
-                self.st.page = PageKind::Shelf;
-                self.expand();
-                self.st.chime();
-            }
-            PhoneEvent::AskEnded { id } => {
-                if let Some(a) = pd.ask.take_if(|a| a.id == id) {
-                    pd.outcome = Some((format!("{} stopped waiting", a.from), false, until));
-                }
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Progress { id, file, files, done, total } => match pd.transfer.as_mut() {
-                Some(t) if t.id == id => {
-                    t.file = file;
-                    t.files = files;
-                    t.done = done;
-                    t.total = total;
-                }
-                _ => {
-                    let from = pd.visitor.clone().unwrap_or_else(|| "Phone".into());
-                    pd.transfer = Some(PhoneTransfer { id, from, file, files, done, total });
-                }
-            },
-            PhoneEvent::Received { from, paths, .. } => {
-                pd.transfer = None;
-                let n = paths.len();
-                let title = format!("{} from {from} {} on the Shelf", files_label(n), if n == 1 { "is" } else { "are" });
-                pd.outcome = Some((title.clone(), true, until));
-                let added: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                self.st.store.shelf.add_paths(&added, self.st.unix);
-                for p in added {
-                    self.st.cmds.push(Command::LoadThumb(p));
-                }
-                self.st.save();
-                pinfo!("phone drop: {} from {from}", files_label(n));
-                if !self.expanded {
-                    self.st.notify(Icon::Phone, palette::GREEN, title, "Open the Shelf to see them", 6.0, Some(NoticeAction::OpenPage(PageKind::Shelf)));
-                }
-                self.st.chime();
-                self.maybe_schedule_collapse();
-            }
-            PhoneEvent::Failed { from, reason, detail, .. } => {
-                pd.transfer = None;
-                pd.outcome = Some((format!("Nothing kept from {from}. {reason}."), false, until));
-                pwarn!("phone drop: transfer from {from} failed: {reason} {detail}");
-                self.maybe_schedule_collapse();
-            }
-        }
-    }
-
-    // ------------------------------------------------------------ paired phones
-
-    fn pair_cmd(&mut self, c: PairCmd) {
-        let now = self.st.now;
-        match c {
-            PairCmd::Begin => {
-                let r = match &self.services {
-                    Some(s) => s.pair_begin(),
-                    None => Err("Pairing is off in the self-test.".into()),
-                };
-                let Some(pd) = self.st.phone.as_mut() else { return };
-                pd.outcome = None;
-                match r {
-                    Ok(url) => {
-                        pinfo!("pair drop: showing a pairing code");
-                        pd.view = PhoneView::Pairing { qr: QrMatrix::encode(&url), url, until: now + poni_core::pairdrop::meet::PAIRING_FOR.as_secs_f64() };
-                    }
-                    Err(e) => {
-                        pwarn!("pair drop: {e}");
-                        pd.outcome = Some((e, false, now + pages::shelf::PHONE_OUTCOME_S));
-                    }
-                }
-            }
-            PairCmd::Back => {
-                if matches!(self.st.phone.as_ref().map(|p| &p.view), Some(PhoneView::Pairing { .. })) {
-                    if let Some(s) = &self.services {
-                        s.pair_cancel();
-                    }
-                }
-                if let Some(pd) = self.st.phone.as_mut() {
-                    pd.view = PhoneView::Lan;
-                }
-            }
-            PairCmd::List => {
-                if matches!(self.st.phone.as_ref().map(|p| &p.view), Some(PhoneView::Pairing { .. })) {
-                    if let Some(s) = &self.services {
-                        s.pair_cancel();
-                    }
-                }
-                if let Some(pd) = self.st.phone.as_mut() {
-                    pd.view = PhoneView::Paired;
-                }
-            }
-            PairCmd::Remove(room) => {
-                if let Some(s) = &self.services {
-                    s.pair_remove(&room);
-                }
-                if let Some(i) = self.st.paired.iter().position(|p| p.room == room) {
-                    let p = self.st.paired.remove(i);
-                    pinfo!("pair drop: removed a paired phone");
-                    if let Some(pd) = self.st.phone.as_mut() {
-                        pd.outcome = Some((format!("{} can't send to this PC any more", p.name), false, now + pages::shelf::PHONE_OUTCOME_S));
-                        pd.outcome_line = Some("Pair it again any time from Pair a phone.".into());
-                    }
-                }
-            }
-        }
-        self.request_frame();
-    }
-
-    /// Keep the files paired phones may save in step with the Shelf.
-    fn sync_pair_offer(&mut self) {
-        let Some(svc) = &self.services else { return };
-        let paths = self.st.store.shelf.paths();
-        if self.pair_offer.as_ref() != Some(&paths) {
-            svc.pair_shelf(paths.iter().map(PathBuf::from).collect());
-            self.pair_offer = Some(paths);
-        }
-    }
-
-    fn on_paired(&mut self, e: MeetEvent) {
-        let now = self.st.now;
-        let until = now + pages::shelf::PHONE_OUTCOME_S;
-        match e {
-            MeetEvent::Pairs(list) => self.st.paired = paired_phones(list),
-            MeetEvent::Server { reachable } => {
-                if self.st.pair_server.is_some() || !reachable {
-                    pinfo!("pair drop: meeting server {}", if reachable { "reachable again" } else { "unreachable" });
-                }
-                self.st.pair_server = Some(reachable);
-            }
-            MeetEvent::Paired { name, .. } => {
-                pinfo!("pair drop: a phone finished pairing");
-                if let Some(pd) = self.st.phone.as_mut() {
-                    pd.view = PhoneView::Lan;
-                    pd.outcome = Some((format!("{name} is paired"), true, until));
-                    pd.outcome_line = Some("It can now send from any network, even with this panel closed.".into());
-                }
-                if !self.hovering {
-                    // The island closes now that nothing waits: say it on the pill.
-                    self.st.notify(Icon::Phone, palette::GREEN, format!("{name} is paired"), "It can send from any network now", 6.0, Some(NoticeAction::OpenPage(PageKind::Shelf)));
-                }
-                self.st.chime();
-                self.maybe_schedule_collapse();
-            }
-            MeetEvent::Phone { phone, ev, .. } => match ev {
-                PeerEvent::Hello { .. } => pinfo!("pair drop: a paired phone connected"),
-                PeerEvent::Progress { files, done: 0, .. } => {
-                    if !self.expanded {
-                        self.st.notify(Icon::Phone, palette::GREEN, format!("{phone} is sending {}", files_label(files)), "They go straight onto the Shelf", 4.0, None);
-                    }
-                }
-                PeerEvent::Progress { .. } => {}
-                PeerEvent::Received { paths } => {
-                    let n = paths.len();
-                    let title = format!("{} from {phone} {} on the Shelf", files_label(n), if n == 1 { "is" } else { "are" });
-                    let added: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    self.st.store.shelf.add_paths(&added, self.st.unix);
-                    for p in added {
-                        self.st.cmds.push(Command::LoadThumb(p));
-                    }
-                    self.st.save();
-                    pinfo!("pair drop: {} from a paired phone", files_label(n));
-                    if let Some(pd) = self.st.phone.as_mut() {
-                        pd.outcome = Some((title.clone(), true, until));
-                        pd.outcome_line = None;
-                    }
-                    if !self.expanded {
-                        self.st.notify(Icon::Phone, palette::GREEN, title, "Open the Shelf to see them", 6.0, Some(NoticeAction::OpenPage(PageKind::Shelf)));
-                    }
-                    self.st.chime();
-                    self.maybe_schedule_collapse();
-                }
-                PeerEvent::Failed { reason, detail } => {
-                    pwarn!("pair drop: a send from a paired phone failed: {reason} {detail}");
-                    if !self.expanded {
-                        self.st.notify(Icon::Phone, palette::TEXT, format!("Nothing kept from {phone}"), format!("{reason}."), 6.0, None);
-                    } else if let Some(pd) = self.st.phone.as_mut() {
-                        pd.outcome = Some((format!("Nothing kept from {phone}. {reason}."), false, until));
-                        pd.outcome_line = None;
-                    }
-                }
-                PeerEvent::Ended { .. } => {}
-            },
-        }
-        self.request_frame();
     }
 
     fn save_now(&mut self) {
@@ -4535,19 +4218,6 @@ impl App {
     /// Self-test: what the closed island shows now, and whether it stepped aside.
     pub fn selftest_mode(&self) -> (Mode, bool) {
         (self.mode, self.st.aside)
-    }
-
-    /// Self-test only: start the real Phone drop service, fetch its page from
-    /// the network address it picked, and stop it. Returns (ok, detail).
-    pub fn selftest_phone_drop(&mut self) -> (bool, String) {
-        match services::phonedrop::PhoneDrop::start(self.sink.clone(), Vec::new()) {
-            Err(e) => (false, e),
-            Ok((svc, url)) => {
-                let r = selftest::fetch_phone_page(&url);
-                svc.stop();
-                r
-            }
-        }
     }
 
     /// The self-test's notes turn: a made-up meeting (`take`) handed over to
@@ -4840,18 +4510,6 @@ fn motion_name(from: &Mode, to: &Mode) -> &'static str {
         (Mode::Expanded(_), _) => "collapse",
         _ => "pill",
     }
-}
-
-/// "1 file", "3 files".
-/// The panel's list: most recently used first.
-fn paired_phones(pairs: Vec<poni_core::pairdrop::Pair>) -> Vec<PairedPhone> {
-    let mut v: Vec<PairedPhone> = pairs.into_iter().map(|p| PairedPhone { room: p.room(), name: p.name, seen: p.seen.max(p.added) }).collect();
-    v.sort_by_key(|a| std::cmp::Reverse(a.seen));
-    v
-}
-
-fn files_label(n: usize) -> String {
-    format!("{n} {}", if n == 1 { "file" } else { "files" })
 }
 
 #[cfg(test)]

@@ -19,8 +19,7 @@ pub mod media;
 pub mod mic;
 pub mod notes;
 pub mod oyenza;
-pub mod pairdrop;
-pub mod phonedrop;
+pub mod netinfo;
 pub mod power;
 pub mod recorder;
 pub mod secret;
@@ -45,7 +44,6 @@ pub struct Services {
     _bluetooth: Option<bluetooth::BluetoothService>,
     fullscreen: Option<fullscreen::FullscreenWatcher>,
     oyenza: Option<oyenza::OyenzaService>,
-    pairdrop: Option<pairdrop::PairDropService>,
     addons: Option<addons::AddonService>,
     /// Started the first time the AI tab opens or its notices are on
     /// ([`Services::usage_watch`]).
@@ -75,8 +73,6 @@ impl Services {
         let fullscreen = started("fullscreen", fullscreen::FullscreenWatcher::start(helper, sink.clone()));
         // Idle (no calls) until the person signs in to Oyenza from the tray.
         let oyenza = started("oyenza", oyenza::OyenzaService::start(sink.clone(), activity));
-        // Asks nothing until a phone is paired.
-        let pairdrop = started("pair drop", pairdrop::PairDropService::start(sink.clone()));
         // Asleep unless an add-on is on; then it only checks the files it has.
         // A Studio Pro add-on's files wait for Pro (`set_pro`): a filter here
         // would delete them at every start, before the server's answer, and
@@ -87,7 +83,7 @@ impl Services {
             .map(|a| a.id)
             .collect();
         let addons = started("add-ons", addons::AddonService::start(sink.clone(), on));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, pairdrop, addons, usage: std::cell::OnceCell::new(), sink: sink.clone() }
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, addons, usage: std::cell::OnceCell::new(), sink: sink.clone() }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -176,37 +172,6 @@ impl Services {
         if let Some(s) = self.usage.get_or_init(|| started("usage", usage::UsageService::start(self.sink.clone()))) {
             s.command(c);
         }
-    }
-
-    /// Show a pairing QR code: the link, or a sentence for the panel.
-    pub fn pair_begin(&self) -> Result<String, String> {
-        match &self.pairdrop {
-            Some(p) => p.begin_pairing(),
-            None => Err("Pairing couldn't start on this PC.".into()),
-        }
-    }
-
-    pub fn pair_cancel(&self) {
-        if let Some(p) = &self.pairdrop {
-            p.cancel_pairing();
-        }
-    }
-
-    pub fn pair_remove(&self, room: &str) {
-        if let Some(p) = &self.pairdrop {
-            p.remove(room);
-        }
-    }
-
-    /// The Shelf's files, which connected paired phones may save.
-    pub fn pair_shelf(&self, paths: Vec<std::path::PathBuf>) {
-        if let Some(p) = &self.pairdrop {
-            p.set_shelf(paths);
-        }
-    }
-
-    pub fn pairs(&self) -> Vec<poni_core::pairdrop::Pair> {
-        self.pairdrop.as_ref().map(|p| p.pairs()).unwrap_or_default()
     }
 
     /// The Apple Music token on disk was saved or removed.

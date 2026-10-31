@@ -26,7 +26,7 @@ use crate::state::AppState;
 use crate::ui::{wid_n, Ui};
 use poni_core::addons::{self, Addon, Status};
 use poni_core::geom::{palette, Color, Point, Rect};
-use poni_core::phonedrop::fmt_bytes;
+use poni_core::addons::fmt_bytes;
 
 const INTRO_H: f32 = 18.0;
 const ROWS_Y: f32 = 28.0;

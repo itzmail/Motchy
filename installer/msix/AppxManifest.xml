@@ -53,8 +53,6 @@
   <Capabilities>
     <!-- Lyrics lookups (LRCLIB, and Apple Music once the user adds a token). -->
     <Capability Name="internetClient" />
-    <!-- Phone drop: a page on the home network for the user's own phone, while its panel is open. -->
-    <Capability Name="privateNetworkClientServer" />
     <!-- The Notifications add-on (off by default): other apps' notifications on the island,
          read on the PC and never sent anywhere. Windows asks the person before it allows it. -->
     <uap3:Capability Name="userNotificationListener" />

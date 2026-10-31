@@ -1,7 +1,7 @@
 //! New versions: reads the update file (`poni_core::update::FEED_URL`, about
 //! 1 KB) and believes it only when its signature checks out with a built-in
 //! key. The check uses the system's own crypto: CNG on Windows, and on a Mac
-//! the P-256 code the app already carries for phone drop. It runs as a job on
+//! the P-256 code the app carries for it. It runs as a job on
 //! the add-on downloader's thread (`AddonService::run`), which sleeps the
 //! rest of the time; the app decides when (`crate::updates`).
 //!

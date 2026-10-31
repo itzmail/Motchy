@@ -21,25 +21,8 @@ codegen-units = 1
 strip = true
 
 # Libraries that run for moments and never in a frame, built for size instead
-# of speed (AGENTS.md, Keep it light): paired phone drop's WebRTC (str0m and
-# what it pulls in), JSON and QR codes. Poni's own code keeps opt-level 3.
-[profile.release.package.str0m]
-opt-level = "s"
-[profile.release.package.str0m-proto]
-opt-level = "s"
-[profile.release.package.str0m-wincrypto]
-opt-level = "s"
-[profile.release.package.dimpl]
-opt-level = "s"
-[profile.release.package.sctp-proto]
-opt-level = "s"
-[profile.release.package.combine]
-opt-level = "s"
-[profile.release.package.is]
-opt-level = "s"
+# of speed (AGENTS.md, Keep it light): JSON. Poni's own code keeps opt-level 3.
 [profile.release.package.serde_json]
-opt-level = "s"
-[profile.release.package.qrcodegen]
 opt-level = "s"
 # The AI tab's readers (crates/studio-usage): JSON and log parsing that runs
 # for moments every few minutes, while the tab is open or its notices are on.

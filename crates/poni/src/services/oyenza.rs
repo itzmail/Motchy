@@ -52,7 +52,7 @@ fn computer_name() -> String {
 
 #[cfg(not(windows))]
 fn computer_name() -> String {
-    crate::services::phonedrop::computer_name().unwrap_or_default()
+    crate::services::netinfo::computer_name().unwrap_or_default()
 }
 
 pub struct OyenzaService {

@@ -12,7 +12,6 @@ use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
 use poni_core::lrc::Lyrics;
 use poni_core::oyenza::{Activity, Bill, DayPick, Saved, Seen};
-use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::recorder::Phase as RecPhase;
 use poni_core::prayer::{Place, PlaceList, PrayerMoment, Site, World};
@@ -229,83 +228,6 @@ pub enum Said {
     Checking,
     UpToDate,
     Failed,
-}
-
-/// A phone wants to send these files; the Shelf asks the person at the PC.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PhoneAsk {
-    pub id: u64,
-    /// "iPhone", "Android phone", …
-    pub from: String,
-    /// (name, size) in the order the phone sends them.
-    pub files: Vec<(String, u64)>,
-    pub total: u64,
-}
-
-/// Files coming in from the phone.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PhoneTransfer {
-    pub id: u64,
-    pub from: String,
-    /// The file being sent (0-based) and how many there are.
-    pub file: usize,
-    pub files: usize,
-    pub done: u64,
-    pub total: u64,
-}
-
-/// What the phone panel shows on its left and right.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum PhoneView {
-    /// Today's same-Wi-Fi QR code.
-    #[default]
-    Lan,
-    /// A pairing QR code (`services::pairdrop`): the link, its code and
-    /// until when (app clock) it works.
-    Pairing { url: String, qr: Option<QrMatrix>, until: f64 },
-    /// The paired phones, each with Remove.
-    Paired,
-}
-
-/// A paired phone as the panel lists it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PairedPhone {
-    /// Its room on the meeting server (what Remove names).
-    pub room: String,
-    pub name: String,
-    /// Unix seconds it last connected (0 = not yet).
-    pub seen: i64,
-}
-
-/// Phone drop while the Shelf's phone panel is open: the link, its QR code
-/// and what the phone is doing (`services::phonedrop` runs the server).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PhoneDrop {
-    pub view: PhoneView,
-    /// A second line under `outcome` (None = the usual hint).
-    pub outcome_line: Option<String>,
-    /// The link the QR code carries (empty while starting or after an error).
-    pub url: String,
-    pub qr: Option<QrMatrix>,
-    /// Why it couldn't start, as a sentence for the island.
-    pub error: Option<String>,
-    /// The kind of phone that last opened the page ("iPhone").
-    pub visitor: Option<String>,
-    pub ask: Option<PhoneAsk>,
-    pub transfer: Option<PhoneTransfer>,
-    /// The last result, whether it's good news, and until when it shows.
-    pub outcome: Option<(String, bool, f64)>,
-}
-
-impl PhoneDrop {
-    /// The island stays open while a QR code waits for its first phone and
-    /// while a phone waits for an answer. Once the panel has shown a result
-    /// (a phone paired, files arrived), or on the list of paired phones,
-    /// nothing waits: the island closes when the pointer leaves.
-    pub fn holds_island(&self) -> bool {
-        let waiting = !matches!(self.view, PhoneView::Paired) && self.outcome.is_none();
-        self.ask.is_some() || (waiting && self.error.is_none() && self.visitor.is_none() && self.transfer.is_none())
-    }
 }
 
 /// Transient per-page UI state (scroll offsets, text being typed, …).
@@ -691,12 +613,6 @@ pub struct AppState {
     pub aside: bool,
     /// Files are being dragged over the island right now.
     pub drag_hover: bool,
-    /// Phone drop, while it's open.
-    pub phone: Option<PhoneDrop>,
-    /// Paired phones, newest first (`services::pairdrop`).
-    pub paired: Vec<PairedPhone>,
-    /// Whether the meeting server answers (None = not asked yet: no pairs).
-    pub pair_server: Option<bool>,
     pub oyenza: OyenzaState,
     /// Where each add-on stands, by id (every one in `poni_core::addons::ALL`).
     pub addons: BTreeMap<&'static str, AddonStatus>,
@@ -729,12 +645,6 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// The Shelf's phone panel keeps the open island from closing, only
-    /// while the Shelf is the page on screen.
-    pub fn phone_holds_island(&self) -> bool {
-        self.page == PageKind::Shelf && self.phone.as_ref().is_some_and(|p| p.holds_island())
-    }
-
     /// A reading under way on the Script page keeps the open island from
     /// closing, while that page is on screen.
     pub fn script_holds_island(&self) -> bool {
@@ -743,7 +653,7 @@ impl AppState {
 
     /// Something on the page on screen keeps the open island from closing.
     pub fn page_holds_island(&self) -> bool {
-        self.phone_holds_island() || self.script_holds_island()
+        self.script_holds_island()
     }
 
     pub fn new(settings: Settings, store: Store) -> Self {
@@ -777,9 +687,6 @@ impl AppState {
             pinned: false,
             aside: false,
             drag_hover: false,
-            phone: None,
-            paired: Vec::new(),
-            pair_server: None,
             oyenza: OyenzaState::default(),
             addons: BTreeMap::new(),
             update: UpdateView::default(),
@@ -1056,29 +963,6 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn phone_panel_holds_only_while_a_code_waits_on_the_shelf() {
-        let mut st = AppState::new(Settings::default(), Store::default());
-        st.phone = Some(PhoneDrop::default());
-        st.page = PageKind::Shelf;
-        assert!(st.phone_holds_island(), "a fresh QR code waits for a phone");
-        st.page = PageKind::Media;
-        assert!(!st.phone_holds_island(), "another page: nothing to scan on screen");
-        st.page = PageKind::Shelf;
-        // A phone finished pairing: the panel is back on its Wi-Fi code with a result.
-        st.phone.as_mut().unwrap().outcome = Some(("iPhone is paired".into(), true, 8.0));
-        assert!(!st.phone_holds_island());
-        let pd = st.phone.as_mut().unwrap();
-        pd.outcome = None;
-        pd.view = PhoneView::Paired;
-        assert!(!st.phone_holds_island(), "the paired list has no code to scan");
-        let pd = st.phone.as_mut().unwrap();
-        pd.view = PhoneView::Lan;
-        pd.visitor = Some("iPhone".into());
-        pd.ask = Some(PhoneAsk { id: 1, from: "iPhone".into(), files: vec![], total: 0 });
-        assert!(st.phone_holds_island(), "a phone waits for an answer");
-    }
 
     #[test]
     fn the_goal_notice_waits_while_a_full_screen_app_hides_the_island() {

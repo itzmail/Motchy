@@ -53,23 +53,6 @@ pub fn apple_music_web_token_path() -> PathBuf {
     cache_dir().join("apple-music-web.json")
 }
 
-/// Where files sent from a phone land: `Downloads\Oyenza Studio` (wherever the
-/// user moved Downloads to), or `Downloads\Oyen Poni` where an install from
-/// before the rename made it: Shelf items link to the files in it. Under
-/// `PONI_HOME` for the self-test.
-pub fn phone_inbox_dir() -> PathBuf {
-    if let Some(h) = home_override() {
-        return h.join("phone-drop");
-    }
-    let downloads = downloads_dir().unwrap_or_else(|| env_dir("USERPROFILE").join("Downloads"));
-    let before_rename = downloads.join("Oyen Poni");
-    if before_rename.is_dir() { before_rename } else { downloads.join("Oyenza Studio") }
-}
-
-fn downloads_dir() -> Option<PathBuf> {
-    known_folder(&windows::Win32::UI::Shell::FOLDERID_Downloads)
-}
-
 fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::Com::CoTaskMemFree;
@@ -110,12 +93,6 @@ pub fn notes_dir() -> PathBuf {
     }
     let docs = known_folder(&windows::Win32::UI::Shell::FOLDERID_Documents).unwrap_or_else(|| env_dir("USERPROFILE").join("Documents"));
     docs.join("Oyenza Studio").join("Notes")
-}
-
-/// Paired phones (their pairing secrets and names), sealed with DPAPI.
-/// Removing every phone deletes the file.
-pub fn paired_phones_path() -> PathBuf {
-    cache_dir().join("paired-phones.bin")
 }
 
 /// A key signed out while Oyenza couldn't be reached, sealed, kept only to

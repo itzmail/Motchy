@@ -122,8 +122,6 @@ pub enum AppEvent {
     ScreensAsleep(bool),
     /// The Mac was locked (true) or unlocked.
     Locked(bool),
-    /// Something happened in Phone drop (a phone visited, asked, sent files).
-    Phone(poni_core::phonedrop::Event),
     /// Where an add-on's files stand (`services::addons`).
     Addon { id: &'static str, status: poni_core::addons::Status },
     /// What the update file said (`services::update`).

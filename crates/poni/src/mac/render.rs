@@ -81,7 +81,6 @@ enum Scene {
     LowBatteryHud,
     Page(PageKind),
     ShelfItems,
-    ShelfPhone,
     /// The System page on one module.
     System(Module),
     /// Pill's status bar look at rest.
@@ -152,7 +151,7 @@ enum Scene {
     AddonsPro,
 }
 
-const SCENES: [Scene; 17] = [
+const SCENES: [Scene; 16] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Hover,
@@ -171,7 +170,6 @@ const SCENES: [Scene; 17] = [
     Scene::ChargingHud,
     Scene::LowBatteryHud,
     Scene::ShelfItems,
-    Scene::ShelfPhone,
 ];
 
 /// The System page's modules (after the scenes above, so their numbers stay).
@@ -236,7 +234,6 @@ impl Scene {
             Scene::ChargingHud => "charging-hud".into(),
             Scene::LowBatteryHud => "low-battery-hud".into(),
             Scene::ShelfItems => "page-shelf-items".into(),
-            Scene::ShelfPhone => "page-shelf-phone".into(),
             Scene::Page(p) => format!("page-{}", p.key()),
             Scene::System(Module::Cpu) => "page-system".into(),
             Scene::System(m) => format!("page-system-{}", m.title().to_lowercase()),
@@ -893,12 +890,6 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
                 println!("render: shelf tile for {}: {}", p.display(), if tile.is_some() { "drawn" } else { "missing" });
                 st.shelf_thumbs.insert(path, tile);
             }
-            st.page = PageKind::Shelf;
-            Mode::Expanded(PageKind::Shelf)
-        }
-        Scene::ShelfPhone => {
-            let url = "http://192.168.1.20:53530/QK7WZ3MRN2D4XJ5T".to_string();
-            st.phone = Some(crate::state::PhoneDrop { qr: poni_core::phonedrop::QrMatrix::encode(&url), url, ..Default::default() });
             st.page = PageKind::Shelf;
             Mode::Expanded(PageKind::Shelf)
         }

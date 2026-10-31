@@ -421,7 +421,7 @@ impl Sampler {
         if full && self.slow_at.is_none_or(|t| t.elapsed() >= SLOW) {
             self.slow_at = Some(Instant::now());
             self.drives = fixed_drives();
-            self.route = (route_index(), super::phonedrop::route_ipv4().map(|ip| ip.to_string()));
+            self.route = (route_index(), super::netinfo::route_ipv4().map(|ip| ip.to_string()));
             self.battery = battery_details();
             // A graphics card that went away, came back or was added (an external one).
             if self.gpu.is_none() {

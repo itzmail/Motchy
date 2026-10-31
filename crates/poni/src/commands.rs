@@ -23,30 +23,6 @@ pub enum Sound {
     Tick,
 }
 
-/// Phone drop (the Shelf's phone panel).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PhoneCmd {
-    /// Start it (or try again after an error).
-    Open,
-    /// Stop it; files still coming in are dropped.
-    Close,
-    /// Answer the phone's question.
-    Answer { id: u64, accept: bool },
-}
-
-/// Paired phones (also in the Shelf's phone panel; `services::pairdrop`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PairCmd {
-    /// Show a pairing QR code in the panel.
-    Begin,
-    /// Back to the same-Wi-Fi code (a pairing code stops working).
-    Back,
-    /// Show the paired phones.
-    List,
-    /// Forget a paired phone (by its room on the meeting server).
-    Remove(String),
-}
-
 /// Requests for the Oyenza worker (`services::oyenza`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum OyenzaCmd {
@@ -198,8 +174,6 @@ pub enum Command {
     OpenSystem(poni_core::sysmon::Module),
     /// Request an app's icon for the System page (arrives in `AppState::app_icons`).
     LoadAppIcon(String),
-    Phone(PhoneCmd),
-    Pair(PairCmd),
     Oyenza(OyenzaCmd),
     Notes(NotesCmd),
     /// Get one of Prayer times' online city files ("ed", "near/55_-5"; the

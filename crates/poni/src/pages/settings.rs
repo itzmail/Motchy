@@ -29,7 +29,7 @@ use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_GAP, PILL_REGULAR, PILL_SMALL};
 use crate::version::VERSION;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::oyenza;
-use poni_core::phonedrop::fmt_bytes;
+use poni_core::addons::fmt_bytes;
 use poni_core::settings::{IdleStyle, Theme};
 use poni_core::update::Release;
 
