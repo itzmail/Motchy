@@ -80,8 +80,6 @@ pub struct Settings {
     pub monitor: MonitorChoice,
     pub show_media_activity: bool,
     pub lyrics: bool,
-    /// Romanized "pronunciation" line under Japanese, Korean and Chinese lyrics.
-    pub lyrics_pronunciation: bool,
     /// Shift synced lyrics: positive shows each line earlier (ms).
     pub lyrics_offset_ms: i32,
     pub hud_volume: bool,
@@ -226,7 +224,6 @@ impl Default for Settings {
             monitor: MonitorChoice::Primary,
             show_media_activity: true,
             lyrics: true,
-            lyrics_pronunciation: true,
             lyrics_offset_ms: 0,
             hud_volume: true,
             hud_power: true,
@@ -283,13 +280,6 @@ impl Settings {
     /// switch, and only while System itself is on.
     pub fn system_history_on(&self) -> bool {
         self.system_on() && self.system_history
-    }
-
-    /// Has the person never switched the add-on `id` on or off? An add-on
-    /// that switches itself on when first needed (Japanese readings) does so
-    /// only then: one switched off by hand stays off.
-    pub fn addon_unset(&self, id: &str) -> bool {
-        !self.addons.contains_key(id)
     }
 
     /// Screen recorder: on once Oyenza Studio Recorder is `installed`, unless
@@ -367,20 +357,6 @@ mod tests {
         // Files from before add-ons have none on.
         let old: Settings = serde_json::from_str(r#"{"settings_version":3}"#).unwrap();
         assert!(old.addons.is_empty());
-    }
-
-    #[test]
-    fn an_addon_switched_off_by_hand_is_no_longer_unset() {
-        let mut s = Settings::default();
-        assert!(s.addon_unset("ja"));
-        s.set_addon("ja", true);
-        assert!(!s.addon_unset("ja"));
-        s.set_addon("ja", false);
-        assert!(!s.addon_unset("ja"), "off by hand: the person's word, kept");
-        assert!(!s.addon_on("ja"));
-        // It survives a save and a load.
-        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert!(!back.addon_unset("ja"));
     }
 
     #[test]

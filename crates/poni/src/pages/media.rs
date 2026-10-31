@@ -23,12 +23,10 @@ use crate::gfx::{ts, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::{AppState, LyricsState, LyricsStatus, MediaSession, PageUiState};
 use crate::ui::{wid, wid_n, Ui, WidgetId};
-use poni_core::addons;
 use poni_core::datetime::fmt_duration;
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
 use poni_core::lrc::Lyrics;
 use poni_core::nowplaying::lyrics_lead_s;
-use poni_core::romanize::Ruby;
 use poni_core::timeline::LyricClock;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -79,19 +77,6 @@ const LYRIC_MAX: f32 = 16.0;
 const LYRIC_GAP: f32 = 12.0;
 /// Uniform leading for lyric rows, so a wrapped line reads as one unit.
 const LYRIC_LEADING: f32 = 1.2;
-/// Pronunciation under Japanese / Korean / Chinese lines (Apple Music's
-/// "Show Pronunciation" layout): each piece of the line with its reading set
-/// small under it, pieces wrapping as whole units.
-const ROMAN_SCALE: f32 = 0.72;
-/// Pronounced lines are set a little smaller, so a line and its reading
-/// usually fit one row and the lines around it stay in view.
-const RUBY_SIZE: f32 = 0.9;
-const ROMAN_ALPHA: f32 = 0.78;
-const ROMAN_GAP: f32 = 1.0;
-/// Space between pieces, as a fraction of the lyric size.
-const PIECE_GAP: f32 = 0.42;
-/// Extra space between wrapped lines of pieces.
-const RUBY_LINE_GAP: f32 = 4.0;
 /// Highlight a line slightly early so the scroll lands as the line starts.
 const LYRIC_LEAD_S: f64 = 0.12;
 /// Show "intro" dots before the first line when it starts this late.
@@ -108,9 +93,6 @@ const CREDIT_H: f32 = 14.0;
 const CREDIT_GAP: f32 = 4.0;
 /// The credit fades in while the pointer is over the lyrics column.
 const CREDIT_FADE_S: f32 = 0.15;
-/// The Japanese readings offer shrinks to fit the column, to no less than this
-/// of the caption size (beyond that it's cut).
-const OFFER_MIN_SCALE: f32 = 0.85;
 /// Credited when a result doesn't name its source.
 const DEFAULT_SOURCE: &str = "LRCLIB";
 
@@ -173,8 +155,6 @@ pub(crate) struct Anim {
     env: (u32, u32),
     /// (row, size × 4) → measured (width, height) of a wrapped lyric line.
     sizes: HashMap<(usize, u16), (f32, f32)>,
-    /// (row, size × 4) → where the pieces of a pronounced line go.
-    rubies: HashMap<(usize, u16), RubyLay>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -448,18 +428,12 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     // Lyrics.
     let mut open_credit = false;
     let mut synced_shown = false;
-    let mut get_ja_readings = false;
     if show_lyrics {
-        let pronounce = st.settings.lyrics_pronunciation;
-        // A Japanese song whose kanji went unread: the readings add-on coming
-        // in (the app switched it on), or offered after a switch-off by hand.
-        let offer = if pronounce && st.lyrics.wants_ja_readings { addons::ja_offer(st.addon(addons::JAPANESE_READINGS.id)) } else { None };
-        let ctx = LyricsCtx { now, pos: lyric_pos, live: playing && has_dur, can_seek: m.can_seek, scale, track_key: &m.track_key, pronounce, offer };
+        let ctx = LyricsCtx { now, pos: lyric_pos, live: playing && has_dur, can_seek: m.can_seek, scale, track_key: &m.track_key };
         let out = draw_lyrics(ui, &st.lyrics, &mut st.ui, col, a, fr, &ctx, &mut acts);
         anim |= out.animating;
         synced_shown = out.synced;
         open_credit = out.open_credit;
-        get_ja_readings = out.get_ja_readings;
     }
 
     // Real transitions (a lyric scroll catching up, a press) get full-rate
@@ -477,12 +451,6 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     if open_credit {
         let url = source_url(lyrics_source(&st.lyrics)).to_string();
         st.cmd(Command::OpenUrl(url));
-    }
-    // The same switch as the Add-ons tab's row: the app downloads it, then
-    // reads the song again.
-    if get_ja_readings {
-        st.settings.set_addon(addons::JAPANESE_READINGS.id, true);
-        st.cmd(Command::SaveSettings);
     }
 }
 
@@ -593,11 +561,6 @@ pub(crate) struct LyricsCtx<'a> {
     pub(crate) can_seek: bool,
     pub(crate) scale: f32,
     pub(crate) track_key: &'a str,
-    /// Show the pronunciation pieces (`LyricsState::ruby`) under lines.
-    pub(crate) pronounce: bool,
-    /// In the credit's place, always shown: the Japanese readings add-on's
-    /// line (`poni_core::addons::ja_offer`) and whether a click gets it.
-    pub(crate) offer: Option<(String, bool)>,
 }
 
 #[derive(Default)]
@@ -605,8 +568,6 @@ pub(crate) struct LyricsOut {
     pub(crate) animating: bool,
     pub(crate) synced: bool,
     pub(crate) open_credit: bool,
-    /// The offer was clicked: switch the Japanese readings add-on on.
-    pub(crate) get_ja_readings: bool,
 }
 
 enum View<'a> {
@@ -657,16 +618,14 @@ pub(crate) fn draw_lyrics(
         a.set_sig(ctx.track_key, shown);
         a.clock.reset();
         a.sizes.clear();
-        a.rubies.clear();
         a.lyric_vel = 0.0;
         a.scroll_target = 0.0;
         a.scroll_vel = 0.0;
     }
     let env = (col.w.to_bits(), ctx.scale.to_bits());
-    if a.env != env || a.sizes.len() + a.rubies.len() > MAX_CACHE {
+    if a.env != env || a.sizes.len() > MAX_CACHE {
         a.env = env;
         a.sizes.clear();
-        a.rubies.clear();
     }
 
     let vp = Rect::new(col.x, col.y, col.w, col.h - CREDIT_H - CREDIT_GAP);
@@ -680,11 +639,11 @@ pub(crate) fn draw_lyrics(
         }
         View::Synced(l) => {
             out.synced = true;
-            out.animating = draw_synced(ui, l, &lyr.ruby, pui, vp, a, fr, fresh, ctx, acts);
+            out.animating = draw_synced(ui, l, pui, vp, a, fr, fresh, ctx, acts);
             format!("Lyrics: {source}")
         }
         View::Plain(l) => {
-            out.animating = draw_plain(ui, l, &lyr.ruby, pui, vp, a, fr, fresh, ctx);
+            out.animating = draw_plain(ui, l, pui, vp, a, fr, fresh, ctx);
             format!("Lyrics: {source} \u{b7} Unsynced")
         }
     };
@@ -700,9 +659,7 @@ pub(crate) fn draw_lyrics(
         a.credit_k = if target > a.credit_k { (a.credit_k + step).min(target) } else { (a.credit_k - step).max(target) };
         out.animating = true;
     }
-    if let Some((line, click)) = &ctx.offer {
-        out.get_ja_readings = draw_offer(ui, col, line, *click);
-    } else if a.credit_k > 0.0 {
+    if a.credit_k > 0.0 {
         out.open_credit = draw_credit(ui, col, &credit, smoothstep(a.credit_k));
     }
     out
@@ -729,28 +686,6 @@ fn draw_credit(ui: &mut Ui, col: Rect, label: &str, alpha: f32) -> bool {
     resp.clicked
 }
 
-/// The Japanese readings add-on's line where the credit goes, shown while the
-/// song needs it; `click`: it takes a click (returns true when clicked).
-/// Where it's wider than the column (the Mac's font is wider, or the island
-/// narrower) it's set a little smaller, so its end, the size, still shows.
-fn draw_offer(ui: &mut Ui, col: Rect, line: &str, click: bool) -> bool {
-    let mut ts = TextStyle::caption();
-    let full = ui.c.measure(line, &ts, 10_000.0).0;
-    if full > col.w - 2.0 {
-        ts.size *= ((col.w - 2.0) / full).max(OFFER_MIN_SCALE);
-    }
-    let (tw, _) = ui.c.measure(line, &ts, col.w);
-    let r = Rect::new(col.x, col.bottom() - CREDIT_H, (tw + 2.0).min(col.w), CREDIT_H);
-    if !click {
-        ui.c.text(line, r, &ts.color(palette::TEXT_DIM));
-        return false;
-    }
-    let resp = ui.button(wid("media_ja_readings"), r.inset(-6.0, -5.0));
-    let color = if resp.hovered { palette::TEXT } else { palette::TEXT_DIM };
-    ui.c.text(line, r, &ts.color(color));
-    resp.clicked
-}
-
 /// Lyric text style at `size` (wrapped, uniform leading).
 fn lyric_style(size: f32) -> TextStyle {
     TextStyle::new(size).weight(Weight::Semibold).wrap().line_spacing(LYRIC_LEADING)
@@ -769,106 +704,6 @@ fn measure_row(ui: &mut Ui, a: &mut Anim, row: usize, size: f32, text: &str, wra
     v
 }
 
-/// A lyric piece at `size` on one line (no wrapping, same leading as rows).
-fn piece_style(size: f32) -> TextStyle {
-    TextStyle::new(size).weight(Weight::Semibold).line_spacing(LYRIC_LEADING).top()
-}
-
-/// The reading under a piece: smaller, never below the type scale's floor.
-fn roman_style(size: f32) -> TextStyle {
-    TextStyle::new((size * ROMAN_SCALE).max(ts::CAPTION)).weight(Weight::Medium).top()
-}
-
-/// One piece of a pronounced line, placed relative to the row's top left.
-#[derive(Clone)]
-struct Placed {
-    text: String,
-    roman: String,
-    x: f32,
-    y: f32,
-    text_w: f32,
-    roman_w: f32,
-}
-
-/// Where the pieces of a pronounced line go.
-#[derive(Clone, Default)]
-struct RubyLay {
-    pieces: Vec<Placed>,
-    w: f32,
-    h: f32,
-}
-
-/// Height of one line of pieces with their readings.
-fn ruby_line_h(size: f32) -> f32 {
-    let rs = roman_style(size).size;
-    size * LYRIC_LEADING + ROMAN_GAP + rs * 1.25
-}
-
-/// Lay the pieces out left to right, each as wide as the wider of its text
-/// and its reading, wrapping whole pieces at `wrap_w`. Spaces between words
-/// become the same gap as the one set between pieces.
-fn layout_ruby(ui: &mut Ui, pieces: &[Ruby], size: f32, wrap_w: f32) -> RubyLay {
-    let (ps, rs) = (piece_style(size), roman_style(size));
-    let line_h = ruby_line_h(size);
-    let gap = (size * PIECE_GAP).round();
-    let space = ui.c.measure("a a", &ps, 10_000.0).0 - ui.c.measure("aa", &ps, 10_000.0).0;
-    let mut lay = RubyLay { pieces: Vec::with_capacity(pieces.len()), ..Default::default() };
-    let (mut x, mut y, mut any) = (0.0f32, 0.0f32, false);
-    for p in pieces {
-        // A run with no reading (English inside a Korean line, say) wraps
-        // word by word like ordinary text; a piece with a reading stays whole.
-        let words: Vec<&str> = if p.roman.is_empty() { p.text.split_whitespace().collect() } else { vec![p.text.trim()] };
-        for (i, text) in words.into_iter().enumerate() {
-            if text.is_empty() {
-                continue;
-            }
-            let tw = ui.c.measure(text, &ps, 10_000.0).0;
-            let rw = if p.roman.is_empty() { 0.0 } else { ui.c.measure(&p.roman, &rs, 10_000.0).0 };
-            let w = tw.max(rw);
-            if any {
-                x += if i > 0 { space } else { gap };
-            }
-            if any && x + w > wrap_w {
-                x = 0.0;
-                y += line_h + RUBY_LINE_GAP;
-            }
-            lay.pieces.push(Placed { text: text.to_string(), roman: p.roman.clone(), x, y, text_w: tw, roman_w: rw });
-            x += w;
-            lay.w = lay.w.max(x.min(wrap_w));
-            any = true;
-        }
-    }
-    lay.h = y + line_h;
-    lay
-}
-
-/// A pronounced line's layout, cached per (row, size) for the current lyrics.
-fn measure_ruby(ui: &mut Ui, a: &mut Anim, row: usize, size: f32, pieces: &[Ruby], wrap_w: f32) -> (f32, f32) {
-    let key = (row, (size * 4.0).round() as u16);
-    if let Some(l) = a.rubies.get(&key) {
-        return (l.w, l.h);
-    }
-    let l = layout_ruby(ui, pieces, size, wrap_w);
-    let v = (l.w, l.h);
-    a.rubies.insert(key, l);
-    v
-}
-
-/// Draw a pronounced line measured by [`measure_ruby`] with its top left at
-/// (`x`, `y`): each piece in lyric type, its reading small under it.
-fn draw_ruby(ui: &mut Ui, a: &Anim, row: usize, size: f32, x: f32, y: f32, alpha: f32) {
-    let Some(lay) = a.rubies.get(&(row, (size * 4.0).round() as u16)) else { return };
-    let ps = piece_style(size).color(Color::white(alpha));
-    let rs = roman_style(size).color(Color::white(alpha * ROMAN_ALPHA));
-    let text_h = size * LYRIC_LEADING;
-    for p in &lay.pieces {
-        ui.c.text(&p.text, Rect::new(x + p.x, y + p.y, p.text_w + 2.0, text_h + 2.0), &ps);
-        if p.roman_w > 0.0 {
-            ui.c.text(&p.roman, Rect::new(x + p.x, y + p.y + text_h + ROMAN_GAP, p.roman_w + 2.0, rs.size * 1.25 + 2.0), &rs);
-        }
-    }
-}
-
 /// One row of the synced view (a line, or an instrumental/intro gap).
 struct Row<'a> {
     r: usize,
@@ -883,8 +718,6 @@ struct Row<'a> {
     /// Height of the layout box at `size_q` (`h` is its scaled height).
     lay_h: f32,
     text: &'a str,
-    /// The line's pieces with their readings, when it is shown pronounced.
-    ruby: Option<&'a [Ruby]>,
     wrap_w: f32,
     w: f32,
     h: f32,
@@ -942,7 +775,6 @@ fn shown_distances(rs: &[usize], open: &[f32], p: f32) -> Vec<f32> {
 fn draw_synced(
     ui: &mut Ui,
     l: &Lyrics,
-    rubies: &[Vec<Ruby>],
     pui: &mut PageUiState,
     vp: Rect,
     a: &mut Anim,
@@ -995,14 +827,9 @@ fn draw_synced(
         let (size, size_q) = lyric_size(1.0 - d);
         let k = size / size_q;
         let text = text_of(r);
-        let ruby = if ctx.pronounce && !text.is_empty() { rubies.get(r - off).map(Vec::as_slice).filter(|p| !p.is_empty()) } else { None };
         let wrap_w = vp.w * size_q / LYRIC_MAX;
-        let (w, lay_h) = match ruby {
-            _ if text.is_empty() => (dots_width(size) / k, size_q * LYRIC_LEADING * open),
-            Some(p) => measure_ruby(ui, a, r, size_q * RUBY_SIZE, p, wrap_w),
-            None => measure_row(ui, a, r, size_q, text, wrap_w),
-        };
-        rows.push(Row { r, d, size, size_q, k, lay_h, text, ruby, wrap_w, w: w * k, h: lay_h * k, open, c: 0.0 });
+        let (w, lay_h) = if text.is_empty() { (dots_width(size) / k, size_q * LYRIC_LEADING * open) } else { measure_row(ui, a, r, size_q, text, wrap_w) };
+        rows.push(Row { r, d, size, size_q, k, lay_h, text, wrap_w, w: w * k, h: lay_h * k, open, c: 0.0 });
     }
     let ik = k - lo;
     for i in ik + 1..rows.len() {
@@ -1076,12 +903,8 @@ fn draw_synced(
             if row.k != 1.0 {
                 ui.c.scale_about(Point::new(vp.x, y), row.k);
             }
-            if row.ruby.is_some() {
-                draw_ruby(ui, a, row.r, row.size_q * RUBY_SIZE, vp.x, y, alpha);
-            } else {
-                let ts = lyric_style(row.size_q).color(Color::white(alpha)).top();
-                ui.c.text(row.text, Rect::new(vp.x, y, row.wrap_w, row.lay_h + 2.0), &ts);
-            }
+            let ts = lyric_style(row.size_q).color(Color::white(alpha)).top();
+            ui.c.text(row.text, Rect::new(vp.x, y, row.wrap_w, row.lay_h + 2.0), &ts);
             ui.c.restore_transform(m0);
         }
     }
@@ -1112,7 +935,6 @@ fn draw_dots(ui: &mut Ui, x: f32, cy: f32, size: f32, alpha: f32, lit: Option<f3
 fn draw_plain(
     ui: &mut Ui,
     l: &Lyrics,
-    rubies: &[Vec<Ruby>],
     pui: &mut PageUiState,
     vp: Rect,
     a: &mut Anim,
@@ -1125,16 +947,11 @@ fn draw_plain(
     let start = lines.iter().position(|x| !x.text.trim().is_empty()).unwrap_or(lines.len());
     let end = (start + PLAIN_MAX_LINES).min(lines.len());
     let shown = &lines[start..end];
-    let pieces = |i: usize| if ctx.pronounce { rubies.get(start + i).map(Vec::as_slice).filter(|p| !p.is_empty()) } else { None };
 
     let mut heights: Vec<f32> = Vec::with_capacity(shown.len());
     for (i, line) in shown.iter().enumerate() {
         let text = line.text.trim();
-        let h = match pieces(i) {
-            _ if text.is_empty() => STANZA_GAP,
-            Some(p) => measure_ruby(ui, a, i, PLAIN_SIZE, p, vp.w).1,
-            None => measure_row(ui, a, i, PLAIN_SIZE, text, vp.w).1,
-        };
+        let h = if text.is_empty() { STANZA_GAP } else { measure_row(ui, a, i, PLAIN_SIZE, text, vp.w).1 };
         heights.push(h);
     }
     let total = heights.iter().sum::<f32>() + PLAIN_GAP * heights.len().saturating_sub(1) as f32;
@@ -1163,7 +980,7 @@ fn draw_plain(
     ui.c.clip(vp);
     let snap_was = ui.c.set_text_snap(settled);
     let mut y = if settled { snap(vp.y - offset, scale) } else { vp.y - offset };
-    for (i, (line, &h)) in shown.iter().zip(&heights).enumerate() {
+    for (line, &h) in shown.iter().zip(&heights) {
         if y > vp.bottom() {
             break;
         }
@@ -1174,10 +991,7 @@ fn draw_plain(
             let fb = lerp(1.0, smoothstep((vp.bottom() - cy) / EDGE_FADE), bottom_k);
             let alpha = palette::TEXT_DIM.a * ft * fb;
             if alpha > 0.01 {
-                match pieces(i) {
-                    Some(_) => draw_ruby(ui, a, i, PLAIN_SIZE, vp.x, y, alpha),
-                    None => ui.c.text(text, Rect::new(vp.x, y, vp.w, h + 2.0), &ts.color(Color::white(alpha))),
-                }
+                ui.c.text(text, Rect::new(vp.x, y, vp.w, h + 2.0), &ts.color(Color::white(alpha)));
             }
         }
         y += h + PLAIN_GAP;

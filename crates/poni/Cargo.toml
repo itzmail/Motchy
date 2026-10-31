@@ -13,9 +13,6 @@ name = "poni"
 path = "src/main.rs"
 
 [dependencies]
-# Oyenza Studio's own Japanese reading dictionary (3.8 MB) is not built into
-# poni.exe: Windows downloads it as the Japanese readings add-on
-# (poni_core::addons::JAPANESE_READINGS) for the people who want it.
 poni-core = { path = "../poni-core" }
 # The AI tab's readers (crates/studio-usage), built for size.
 studio-usage = { path = "../studio-usage" }
@@ -43,7 +40,6 @@ features = [
     "Foundation",
     "Foundation_Collections",
     "Foundation_Numerics",
-    "Globalization",
     "Media",
     "Media_Control",
     "Storage",

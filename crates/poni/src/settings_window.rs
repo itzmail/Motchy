@@ -247,7 +247,6 @@ pub enum Key {
     GameStats,
     GamePeek,
     Lyrics,
-    Pronunciation,
     MediaActivity,
     LyricsOffset,
     HudVolume,
@@ -447,7 +446,6 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
                 Some("Lyrics"),
                 vec![
                     switch(Key::Lyrics, "Synced lyrics", Some("Lyrics move with the song, from LRCLIB"), s.lyrics),
-                    switch(Key::Pronunciation, "Lyrics pronunciation", Some("Romaji, pinyin and Korean under the lines"), s.lyrics_pronunciation),
                     item(Key::LyricsOffset, "Timing", Some("Shift every line earlier or later"), Ctl::Stepper(offset_text(s.lyrics_offset_ms))),
                 ],
             ),
@@ -608,7 +606,6 @@ pub fn apply(st: &mut AppState, key: Key, act: Act) {
         Key::GameStats => s.game_stats = !s.game_stats,
         Key::GamePeek => s.game_peek = !s.game_peek,
         Key::Lyrics => s.lyrics = !s.lyrics,
-        Key::Pronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
         Key::MediaActivity => s.show_media_activity = !s.show_media_activity,
         // + shows the lines later, as people hear a late line.
         Key::LyricsOffset => s.lyrics_offset_ms = (s.lyrics_offset_ms - step * OFFSET_STEP).clamp(-5000, 5000),

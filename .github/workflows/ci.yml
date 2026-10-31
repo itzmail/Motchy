@@ -114,7 +114,7 @@ jobs:
   # The self-tests and smoke runs on three machines at once, from the
   # poni.exe built above. Each step is the same as when one machine ran them
   # all in a row; `group` says which machine runs it:
-  #   classic: the scripted self-test, the add-on on/off run, Japanese lyrics,
+  #   classic: the scripted self-test, the add-on on/off run,
   #            the Pill smoke run
   #   glass:   the Glass self-tests, the Glass smoke run, the Pill self-test
   #   smoke:   the smoke run, the software renderer, the Inno Setup check
@@ -215,76 +215,6 @@ jobs:
           Select-String -Path $log -Pattern 'add-ons' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
           "ready: $ready, files: $have, deleted when off: $gone, folder left: $left"
           if (-not $ready -or $have -ne 3 -or -not $gone -or $left) { exit 1 }
-
-      # The Oyen theme (cream look, embedded Outfit font) with the sample song in
-      # Japanese: its pronunciation line comes from Windows' own reading
-      # analyzer, which Wine doesn't have, so this is where it gets checked.
-      # Every line must read (kanji lines too), from a worker thread like the
-      # real lyrics lookup.
-      - name: Self-test, Oyen theme, Japanese lyrics
-        if: matrix.group == 'classic'
-        shell: pwsh
-        env:
-          PONI_SELFTEST_THEME: oyen
-          PONI_SELFTEST_LYRICS: ja
-          PONI_SELFTEST_ANALYZER: required
-        run: |
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -Namespace PoniCiOyen -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
-          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          [PoniCiOyen.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
-
-          New-Item -ItemType Directory -Force -Path selftest-oyen-ja | Out-Null
-          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-oyen-ja" -PassThru
-          $null = $p.Handle
-          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; $code = -1 } else { $code = $p.ExitCode }
-          "oyen + japanese self-test exit code: $code"
-          if (Test-Path selftest-oyen-ja\report.json) {
-            $r = Get-Content selftest-oyen-ja\report.json -Raw | ConvertFrom-Json
-            "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
-            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
-          }
-          "---- pronunciation (poni.log)"
-          Select-String -Path selftest-oyen-ja\home\cache\poni.log -Pattern 'selftest: \[ja\]|fonts:|reading analyzer' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
-          if ($code -ne 0) {
-            Get-Content selftest-oyen-ja\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
-            exit 1
-          }
-
-      # The same song the way a PC without Windows' Japanese reading data
-      # reads it (most Windows 11 PCs outside Japan): with Oyenza Studio's own
-      # dictionary from the Japanese readings add-on (the repo's copy, put
-      # where the add-on keeps it). Every line must read here too.
-      - name: Self-test, Japanese lyrics with Oyenza Studio's own dictionary
-        if: matrix.group == 'classic'
-        shell: pwsh
-        env:
-          PONI_SELFTEST_THEME: oyen
-          PONI_SELFTEST_LYRICS: ja
-          PONI_SELFTEST_ANALYZER: "off"
-          PONI_SELFTEST_JA_DICT: crates\poni-core\data\ja-readings.dic.zst
-        run: |
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -Namespace PoniCiOwn -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
-          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          [PoniCiOwn.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
-
-          New-Item -ItemType Directory -Force -Path selftest-ja-own | Out-Null
-          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-ja-own" -PassThru
-          $null = $p.Handle
-          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; $code = -1 } else { $code = $p.ExitCode }
-          "own-dictionary self-test exit code: $code"
-          if (Test-Path selftest-ja-own\report.json) {
-            $r = Get-Content selftest-ja-own\report.json -Raw | ConvertFrom-Json
-            "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
-            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
-          }
-          "---- pronunciation (poni.log)"
-          Select-String -Path selftest-ja-own\home\cache\poni.log -Pattern 'selftest: \[ja\]|reading' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
-          if ($code -ne 0) {
-            Get-Content selftest-ja-own\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
-            exit 1
-          }
 
       # The Glass theme over pages the self-test draws itself (no screen copy):
       # a light page in light mode, a dark page in dark mode, and the dark page

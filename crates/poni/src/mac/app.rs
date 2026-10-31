@@ -42,7 +42,7 @@ use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSApplicationD
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGContext;
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSRunLoop, NSRunLoopCommonModes, NSTimer};
-use poni_core::addons::{Status as AddonStatus, DOWNLOADER, JAPANESE_READINGS, PRAYER_TIMES, SYSTEM};
+use poni_core::addons::{Status as AddonStatus, DOWNLOADER, PRAYER_TIMES, SYSTEM};
 use poni_core::frametime::MotionStats;
 use poni_core::phonedrop::{Event as PhoneEvent, QrMatrix};
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -1201,7 +1201,6 @@ impl App {
             MenuCmd::ToggleSounds => s.sounds = !s.sounds,
             MenuCmd::SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             MenuCmd::ToggleLyrics => s.lyrics = !s.lyrics,
-            MenuCmd::TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             MenuCmd::AppleMusicToken => self.use_apple_music_token(),
             MenuCmd::AppleMusicHelp => services::open(APPLE_MUSIC_HELP_URL),
             MenuCmd::AppleMusicForget => self.forget_apple_music_token(),
@@ -1609,20 +1608,10 @@ impl App {
             AppEvent::Lyrics { track_key, result } => {
                 if self.st.lyrics.track_key == track_key {
                     match result {
-                        LyricsResult::Found { lyrics, source, ruby, wants_ja_readings } => {
+                        LyricsResult::Found { lyrics, source } => {
                             self.st.lyrics.status = LyricsStatus::Found;
                             self.st.lyrics.lyrics = Some(lyrics);
                             self.st.lyrics.source = source;
-                            self.st.lyrics.ruby = ruby;
-                            self.st.lyrics.wants_ja_readings = wants_ja_readings;
-                            // The first Japanese song whose kanji went unread
-                            // switches Japanese readings on, as on Windows
-                            // (app.rs): switched off by hand, they stay off.
-                            if poni_core::addons::ja_switches_on(&self.st.settings, wants_ja_readings) {
-                                pinfo!("lyrics: a Japanese song's kanji went unread; switching Japanese readings on");
-                                self.st.settings.set_addon(JAPANESE_READINGS.id, true);
-                                self.st.cmds.push(Command::SaveSettings);
-                            }
                         }
                         LyricsResult::Instrumental => self.st.lyrics.status = LyricsStatus::Instrumental,
                         LyricsResult::NotFound => self.st.lyrics.status = LyricsStatus::NotFound,
@@ -1764,16 +1753,6 @@ impl App {
                 self.prayer_ready();
             } else if status == AddonStatus::Off {
                 self.prayer_off();
-            }
-        }
-        // Japanese readings arrived for the song that asked for them: read it
-        // again (its lyrics come from the cache).
-        if id == JAPANESE_READINGS.id && status == AddonStatus::Ready && self.st.lyrics.wants_ja_readings {
-            if let (Some(l), Some(m)) = (self.lyrics.as_ref(), self.st.media.as_ref()) {
-                if m.track_key == self.st.lyrics.track_key {
-                    pinfo!("lyrics: Japanese readings are on this Mac; reading the song again");
-                    l.request(m);
-                }
             }
         }
         // Switched off and its files deleted: with no add-on on, the
@@ -3622,12 +3601,10 @@ impl App {
                 let ready = self.smoke_ready(name, now - t0);
                 // A lyrics lookup waits on LRCLIB (at least a second between
                 // requests), and when LRCLIB doesn't answer the service asks
-                // again 30 s later; the Japanese readings add-on downloads 3.8 MB.
+                // again 30 s later.
                 let limit = match name {
                     "music-check" => 55.0,
-                    "ja-auto" => 25.0,
-                    "ja-get" => 75.0,
-                    "ja-off" | "prayer-off" => 15.0,
+                    "prayer-off" => 15.0,
                     // Prayer times downloads 1.9 MB; Ashar comes 2 seconds in;
                     // macOS answers where the Mac is (or asks the person).
                     "prayer-get" => 75.0,
@@ -3771,12 +3748,10 @@ impl App {
                 self.st.pomodoro.reset();
                 self.cost = DrawCost::default();
             }
-            // A made-up Japanese song: its lyrics go in the lyrics cache, as
-            // if LRCLIB had answered before, and CI announces it as Spotify
-            // would. Back in Classic first, as the menu step is, without the
-            // pretend notch, with the pointer from notch-eyes gone and the
-            // clock at rest again.
-            "ja-notify" => {
+            // Back in Classic, as the menu step is, without the pretend
+            // notch, with the pointer from notch-eyes gone and the clock at
+            // rest again.
+            "classic-reset" => {
                 self.leave();
                 self.st.settings.idle_style = IdleStyle::Clock;
                 window::fake_notch(None);
@@ -3784,23 +3759,14 @@ impl App {
                 self.on_menu(MenuCmd::SetTheme(Theme::Classic));
                 self.collapse();
                 self.st.hud = None;
-                seed_japanese_lyrics();
             }
-            // Read without the Japanese readings add-on, the song switches it
-            // on by itself (the lyrics handler); the Music page shows it coming.
-            "ja-auto" => {
+            // The Music page, open.
+            "music-open" => {
                 self.st.page = PageKind::Media;
                 self.expand();
             }
-            // The add-on downloads from GitHub, then the song is read again.
-            "ja-get" => {}
             // The Add-ons tab, the "+" at the end of the row, with it on.
             "addons-tab" => self.st.cmds.push(Command::SetPage(PageKind::Addons)),
-            // What a click on its row there does (pages/addons.rs).
-            "ja-off" => {
-                self.st.settings.set_addon(JAPANESE_READINGS.id, false);
-                self.st.cmds.push(Command::SaveSettings);
-            }
             // Prayer times from the Add-ons tab: its files download from
             // GitHub, for a place picked by hand (as the picker does).
             "prayer-get" => {
@@ -4117,18 +4083,6 @@ impl App {
                 let looked_up = !matches!(status, LyricsStatus::Idle | LyricsStatus::Loading) && !lrclib_failed(status);
                 (self.st.media.is_some() && looked_up) || waited > 50.0
             }
-            "ja-auto" => {
-                let l = &self.st.lyrics;
-                let playing = self.st.media.as_ref().is_some_and(|m| m.track_key == l.track_key && m.title == SMOKE_JA_TRACK.0);
-                (playing && l.status == LyricsStatus::Found && waited > 0.5) || waited > 20.0
-            }
-            // The files in place and the song read again with them.
-            "ja-get" => match self.st.addon(JAPANESE_READINGS.id) {
-                AddonStatus::Ready => (!self.st.lyrics.wants_ja_readings && self.st.lyrics.status == LyricsStatus::Found) || waited > 60.0,
-                AddonStatus::Failed => true,
-                _ => waited > 60.0,
-            },
-            "ja-off" => (self.st.addon(JAPANESE_READINGS.id) == AddonStatus::Off && !ja_folder().exists() && self.addons.is_none()) || waited > 10.0,
             "prayer-get" => match self.st.addon(PRAYER_TIMES.id) {
                 AddonStatus::Ready => self.st.prayer_on() || waited > 60.0,
                 AddonStatus::Failed => true,
@@ -4423,30 +4377,10 @@ impl App {
                 let ok = track && l.status == LyricsStatus::Found && lines > 0;
                 Some(("now-playing-lyrics", ok, format!("{playing}; lyrics {:?} from {}: {lines} lines, synced {synced}", l.status, l.source)))
             }
-            "ja-auto" => {
-                let l = &self.st.lyrics;
-                let (read, needing) = romaji_lines(l);
-                let status = self.st.addon(JAPANESE_READINGS.id);
-                let on = self.st.settings.addon_on(JAPANESE_READINGS.id);
-                let ok = l.status == LyricsStatus::Found && on && status != AddonStatus::Off;
-                let d = format!("lyrics {:?} from {}: {read} of {needing} lines with romaji; Japanese readings switched on by the song: {on} ({status:?})", l.status, l.source);
-                Some(("ja-auto", ok, d))
-            }
-            "ja-get" => {
-                let status = self.st.addon(JAPANESE_READINGS.id);
-                let checked = |f: &poni_core::addons::AddonFile| {
-                    std::fs::read(services::addons::file_path(&JAPANESE_READINGS, f.name)).is_ok_and(|b| f.matches(&b))
-                };
-                let files: Vec<String> = JAPANESE_READINGS.files.iter().map(|f| format!("{} {}", f.name, if checked(f) { "checked" } else { "missing or different" })).collect();
-                let (read, needing) = romaji_lines(&self.st.lyrics);
-                let ok = status == AddonStatus::Ready && JAPANESE_READINGS.files.iter().all(checked) && read == needing && !self.st.lyrics.wants_ja_readings;
-                Some(("ja-readings-addon", ok, format!("{status:?}: {}; read again: {read} of {needing} lines with romaji", files.join(", "))))
-            }
             "addons-tab" => {
                 let tabs = pages::tabs(&self.st);
-                let status = self.st.addon(JAPANESE_READINGS.id);
-                let ok = self.st.page == PageKind::Addons && tabs.last() == Some(&PageKind::Addons) && status == AddonStatus::Ready;
-                let d = format!("{} tabs, the last {:?}; Japanese readings: {}", tabs.len(), tabs.last(), status.line(&JAPANESE_READINGS, true));
+                let ok = self.st.page == PageKind::Addons && tabs.last() == Some(&PageKind::Addons);
+                let d = format!("{} tabs, the last {:?}", tabs.len(), tabs.last());
                 Some(("addons-tab", ok, d))
             }
             "prayer-get" => {
@@ -4566,13 +4500,6 @@ impl App {
                 let tab = pages::tabs(&self.st).contains(&PageKind::Oyenza);
                 let ok = self.st.oyenza.link == OyenzaLink::Off && tab;
                 Some(("oyenza-off", ok, format!("{:?}; Oyenza tab: {tab}", self.st.oyenza.link)))
-            }
-            "ja-off" => {
-                let status = self.st.addon(JAPANESE_READINGS.id);
-                let gone = !ja_folder().exists();
-                let ok = status == AddonStatus::Off && gone && self.addons.is_none();
-                let d = format!("{status:?}; files {}; downloader {}", if gone { "deleted" } else { "still there" }, if self.addons.is_none() { "stopped" } else { "still running" });
-                Some(("ja-readings-off", ok, d))
             }
             "notes-capture-stop" => {
                 let (ok, d) = self.smoke_notes_stop.clone().unwrap_or((false, "not run".into()));
@@ -4768,43 +4695,8 @@ fn lrclib_failed(status: &LyricsStatus) -> bool {
     matches!(status, LyricsStatus::Error(m) if services::lyrics::lrclib_trouble(m))
 }
 
-/// Lines of these lyrics that have romaji, and lines that need it.
-fn romaji_lines(l: &LyricsState) -> (usize, usize) {
-    let needing = l.lyrics.as_ref().map_or(0, |x| x.lines.iter().filter(|line| poni_core::romanize::needs_roman(line.text.trim())).count());
-    (l.ruby.iter().filter(|p| p.iter().any(|r| !r.roman.is_empty())).count(), needing)
-}
-
-/// The Japanese readings add-on's folder (every version).
-fn ja_folder() -> PathBuf {
-    paths::addons_dir().join(JAPANESE_READINGS.id)
-}
-
 fn prayer_folder() -> PathBuf {
     paths::addons_dir().join(PRAYER_TIMES.id)
-}
-
-/// The smoke run's Japanese song (`render::LYRICS_JA`) in the lyrics cache,
-/// as LRCLIB's answer: the lyrics worker finds it there as it would a song
-/// it looked up before. The entry is `services/lyrics.rs`'s `CacheEntry`
-/// (format 1); a new format makes the ja-auto check fail.
-fn seed_japanese_lyrics() {
-    use poni_core::lrclib::{self, LrclibRecord, TrackQuery};
-    let (title, artist, album, duration_s) = SMOKE_JA_TRACK;
-    let q = lrclib::normalize_query(&TrackQuery { title: title.into(), artist: artist.into(), album: album.into(), duration_s });
-    let record = LrclibRecord {
-        track_name: title.into(),
-        artist_name: artist.into(),
-        album_name: Some(album.into()),
-        duration: Some(duration_s as f64),
-        synced_lyrics: Some(crate::render::LYRICS_JA.into()),
-        ..Default::default()
-    };
-    let entry = serde_json::json!({ "v": 1, "lookup": 2, "fetched_at": clock::unix_now(), "record": record });
-    let path = paths::lyrics_cache_dir().join(format!("{}.json", lrclib::cache_key(&q)));
-    let saved = std::fs::create_dir_all(paths::lyrics_cache_dir()).and_then(|_| std::fs::write(&path, entry.to_string()));
-    if let Err(e) = saved {
-        pwarn!("smoke: couldn't put the Japanese song's lyrics in {} ({e})", path.display());
-    }
 }
 
 /// The smoke test's look at the System page's real readings: CPU cores,
@@ -4970,7 +4862,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 73] = [
+const SMOKE_STEPS: [&str; 71] = [
     "idle",
     "hover",
     "open-focus",
@@ -5005,11 +4897,9 @@ const SMOKE_STEPS: [&str; 73] = [
     "notch-pill-collapsed",
     "notch-pill-ear",
     "notch-eyes",
-    "ja-notify",
-    "ja-auto",
-    "ja-get",
+    "classic-reset",
+    "music-open",
     "addons-tab",
-    "ja-off",
     "prayer-get",
     "prayer-page",
     "prayer-ok",
@@ -5047,9 +4937,6 @@ const SMOKE_STEPS: [&str; 73] = [
 ];
 /// The track CI announces as Spotify's own notification would.
 const SMOKE_TRACK: &str = "Blinding Lights";
-/// The made-up song with Japanese lyrics CI announces after it: title,
-/// artist, album and length (tools/mac-smoke.sh sends the same).
-const SMOKE_JA_TRACK: (&str, &str, &str, u32) = ("Paper Boats", "The Lanterns", "Harbor Lights", 201);
 /// The track the MediaRemote adapter's test player reports in macOS's own
 /// now playing (third_party/mediaremote-adapter/src/test/NowPlayingTest.m).
 const SMOKE_SERVICE_TRACK: &str = "Is It Broken Yet?";

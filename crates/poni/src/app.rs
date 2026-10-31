@@ -2143,7 +2143,6 @@ impl App {
             SetTheme(theme) => s.theme = theme,
             ToggleSystemHistory => s.system_history = !s.system_history,
             ToggleLyrics => s.lyrics = !s.lyrics,
-            TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             ToggleGameStats => s.game_stats = !s.game_stats,
             ToggleGamePeek => s.game_peek = !s.game_peek,
@@ -2291,23 +2290,10 @@ impl App {
             AppEvent::Lyrics { track_key, result } => {
                 if self.st.lyrics.track_key == track_key {
                     match result {
-                        crate::events::LyricsResult::Found { lyrics, source, ruby, wants_ja_readings } => {
+                        crate::events::LyricsResult::Found { lyrics, source } => {
                             self.st.lyrics.status = LyricsStatus::Found;
                             self.st.lyrics.lyrics = Some(lyrics);
                             self.st.lyrics.source = source;
-                            self.st.lyrics.ruby = ruby;
-                            self.st.lyrics.wants_ja_readings = wants_ja_readings;
-                            // The first Japanese song whose kanji went unread
-                            // switches Japanese readings on, as its switch in
-                            // Add-ons would: it downloads once (3.8 MB) and
-                            // the song is read again with romaji. Only people
-                            // who play Japanese songs get it; switched off by
-                            // hand, it stays off (the Music page still offers it).
-                            if poni_core::addons::ja_switches_on(&self.st.settings, wants_ja_readings) {
-                                pinfo!("lyrics: a Japanese song's kanji went unread; switching Japanese readings on");
-                                self.st.settings.set_addon(poni_core::addons::JAPANESE_READINGS.id, true);
-                                self.st.cmd(Command::SaveSettings);
-                            }
                         }
                         crate::events::LyricsResult::Instrumental => self.st.lyrics.status = LyricsStatus::Instrumental,
                         crate::events::LyricsResult::NotFound => self.st.lyrics.status = LyricsStatus::NotFound,
@@ -2442,16 +2428,6 @@ impl App {
                         self.prayer_ready();
                     } else if status == AddonStatus::Off {
                         self.prayer_off();
-                    }
-                }
-                // Japanese readings arrived for the song that asked for them:
-                // read it again (its lyrics come from the cache).
-                if id == poni_core::addons::JAPANESE_READINGS.id && status == AddonStatus::Ready && self.st.lyrics.wants_ja_readings {
-                    if let (Some(svc), Some(m)) = (self.services.as_ref(), self.st.media.as_ref()) {
-                        if m.track_key == self.st.lyrics.track_key {
-                            pinfo!("lyrics: Japanese readings are on this PC; reading the song again");
-                            svc.request_lyrics(m);
-                        }
                     }
                 }
             }

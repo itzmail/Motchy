@@ -28,9 +28,6 @@ pub mod phonedrop;
 pub mod power;
 pub mod psu;
 pub mod recorder;
-pub mod romanize;
-#[cfg(test)]
-mod romanize_compare;
 pub mod secret;
 pub mod sound;
 pub mod notifications;

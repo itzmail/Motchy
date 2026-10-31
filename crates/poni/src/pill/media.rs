@@ -32,9 +32,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// Every collapsed pill is this tall, a capsule (spec 6.1).
 const H: f32 = 32.0;
-/// A song sung with its readings is two rows tall, the line over its
-/// reading in Latin letters (`super::lyric::reads`), in every theme.
-pub(crate) const H_READS: f32 = 46.0;
 /// The pill is its text plus this much: the art and the equalizer with
 /// their gaps, the same on both sides so the text centres (spec 6.5).
 const SIDES: f32 = 88.0;
@@ -107,14 +104,9 @@ pub fn geom(st: &AppState) -> Option<Geom> {
     Some(Geom::new(fit_w(), h, h / 2.0))
 }
 
-/// How tall the music pill is: two rows while the song sings with its
-/// readings, else one.
-pub(crate) fn height(st: &AppState) -> f32 {
-    if super::lyric::reads(st) {
-        H_READS
-    } else {
-        H
-    }
+/// How tall the music pill is.
+pub(crate) fn height(_st: &AppState) -> f32 {
+    H
 }
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {

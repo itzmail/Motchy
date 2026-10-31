@@ -103,7 +103,6 @@ fn idle_name(s: IdleStyle, eyes: &'static str) -> &'static str {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Switch {
     Lyrics,
-    Pronunciation,
     Sounds,
     Autostart,
 }
@@ -120,7 +119,6 @@ enum Row {
 
 const LEFT: &[Row] = &[
     Row::Switch(Switch::Lyrics, "Synced lyrics"),
-    Row::Switch(Switch::Pronunciation, "Lyrics pronunciation"),
     Row::Switch(Switch::Sounds, "Sounds"),
 ];
 // The version took the row of the new versions' switch (Clipboard history's
@@ -536,7 +534,6 @@ fn switch_on(st: &AppState, sw: Switch) -> Option<bool> {
     let s = &st.settings;
     match sw {
         Switch::Lyrics => Some(s.lyrics),
-        Switch::Pronunciation => Some(s.lyrics_pronunciation),
         Switch::Sounds => Some(s.sounds),
         Switch::Autostart => st.ui.autostart,
     }
@@ -546,7 +543,6 @@ fn flip(st: &mut AppState, sw: Switch, on: Option<bool>) {
     let s = &mut st.settings;
     match sw {
         Switch::Lyrics => s.lyrics = !s.lyrics,
-        Switch::Pronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
         Switch::Sounds => s.sounds = !s.sounds,
         Switch::Autostart => {
             if let Some(on) = on {

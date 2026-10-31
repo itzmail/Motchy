@@ -8,7 +8,6 @@ use crate::state::{MediaSession, PowerState, SysStats};
 use poni_core::lrc::Lyrics;
 use poni_core::agenda;
 use poni_core::oyenza::{Activity, Arrival, Bill, Saved};
-use poni_core::romanize::Ruby;
 use poni_core::timeline::Timeline;
 use std::sync::mpsc::Sender;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -73,10 +72,7 @@ pub enum AppleMusicStatus {
 
 #[derive(Clone, Debug)]
 pub enum LyricsResult {
-    /// `ruby`: each line's pieces with their readings (empty = none needed).
-    /// `wants_ja_readings`: kanji went unread for want of the Japanese
-    /// readings add-on (`services::romanize::Pronounced`).
-    Found { lyrics: Lyrics, source: String, ruby: Vec<Vec<Ruby>>, wants_ja_readings: bool },
+    Found { lyrics: Lyrics, source: String },
     /// The song is marked instrumental (no words to show).
     Instrumental,
     NotFound,

@@ -35,7 +35,6 @@ use crate::state::AppState;
 use crate::ui::{wid, Ui, WidgetId};
 use poni_core::datetime::fmt_duration;
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
-use poni_core::addons;
 use poni_core::nowplaying::lyrics_lead_s;
 use poni_core::svgpath::Seg;
 
@@ -165,7 +164,6 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     let now = st.now;
     let accent = eq_color(st.media_accent());
     let lyrics_on = st.settings.lyrics;
-    let pronounce = st.settings.lyrics_pronunciation;
     let offset_s = f64::from(st.settings.lyrics_offset_ms) / 1000.0;
     let Some(m) = st.media.as_ref() else { return };
 
@@ -265,20 +263,16 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
         acts.push(MediaCmd::Next);
     }
 
-    // The lyrics: Classic's column, as Classic draws it, with its offer of
-    // the Japanese readings add-on.
+    // The lyrics: Classic's column, as Classic draws it.
     let mut open_credit = false;
     let mut synced_shown = false;
-    let mut get_ja_readings = false;
     if let Some(lyr_w) = cols.lyrics_w {
         let col = Rect::new(snap(x0 + area.w - lyr_w), y0, lyr_w, H_SESSION);
-        let offer = if pronounce && st.lyrics.wants_ja_readings { addons::ja_offer(st.addon(addons::JAPANESE_READINGS.id)) } else { None };
-        let ctx = LyricsCtx { now, pos: lyric_pos, live: playing && has_dur, can_seek: m.can_seek, scale, track_key: &m.track_key, pronounce, offer };
+        let ctx = LyricsCtx { now, pos: lyric_pos, live: playing && has_dur, can_seek: m.can_seek, scale, track_key: &m.track_key };
         let out = classic::draw_lyrics(ui, &st.lyrics, &mut st.ui, col, a, fr, &ctx, &mut acts);
         anim |= out.animating;
         synced_shown = out.synced;
         open_credit = out.open_credit;
-        get_ja_readings = out.get_ja_readings;
     }
 
     // The equalizer dances only on the frames the page gets anyway while
@@ -306,12 +300,6 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     if open_credit {
         let url = classic::source_url(classic::lyrics_source(&st.lyrics)).to_string();
         st.cmd(Command::OpenUrl(url));
-    }
-    // As Classic's page: the Add-ons tab's switch; the app downloads it,
-    // then reads the song again.
-    if get_ja_readings {
-        st.settings.set_addon(addons::JAPANESE_READINGS.id, true);
-        st.cmd(Command::SaveSettings);
     }
 }
 

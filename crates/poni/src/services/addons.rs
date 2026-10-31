@@ -507,7 +507,7 @@ pub fn fetch_for_selftest(addon: &'static Addon, dir: &Path) -> (bool, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use poni_core::addons::JAPANESE_READINGS;
+    use poni_core::addons::PRAYER_TIMES as NOTICE_OWNER;
 
     #[test]
     fn a_pro_add_on_s_files_come_only_with_pro() {
@@ -533,8 +533,8 @@ mod tests {
 
     #[test]
     fn a_file_read_in_full_is_stamped_and_a_changed_one_is_caught() {
-        let file = JAPANESE_READINGS.files[1];
-        let bytes: &[u8] = include_bytes!("../../../../addons/ja/NOTICE.txt");
+        let file = *NOTICE_OWNER.files.iter().find(|f| f.name == "NOTICE.txt").unwrap();
+        let bytes: &[u8] = include_bytes!("../../../../addons/sholat/NOTICE.txt");
         let dir = std::env::temp_dir().join(format!("poni-addon-stamp-{}", std::process::id()));
         let path = dir.join(file.name);
         fs::create_dir_all(&dir).unwrap();
@@ -563,7 +563,7 @@ mod tests {
         set_time(t);
         assert!(present(&path, &file, &stamp, &mut Vec::new()));
         // A line made for another pin matches nothing.
-        let other = AddonFile { sha256: JAPANESE_READINGS.files[0].sha256, ..file };
+        let other = AddonFile { sha256: NOTICE_OWNER.files[0].sha256, ..file };
         assert!(!present(&path, &other, &stamp, &mut Vec::new()));
         let _ = fs::remove_dir_all(&dir);
     }

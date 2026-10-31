@@ -16,7 +16,6 @@ use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::recorder::Phase as RecPhase;
 use poni_core::prayer::{Place, PlaceList, PrayerMoment, Site, World};
-use poni_core::romanize::Ruby;
 use poni_core::settings::Settings;
 use poni_core::store::Store;
 use poni_core::timeline::Timeline;
@@ -70,19 +69,11 @@ pub struct LyricsState {
     pub status: LyricsStatus,
     pub lyrics: Option<Lyrics>,
     pub source: String,
-    /// Each line's pieces with their readings in Latin letters (Japanese,
-    /// Korean, Chinese); empty for lines that need none.
-    pub ruby: Vec<Vec<Ruby>>,
-    /// The song's kanji went unread because Windows has no Japanese reading
-    /// data and the Japanese readings add-on isn't on this PC: the app
-    /// switches the add-on on the first time, and the Music page shows how
-    /// it comes in (or offers it, after a switch-off by hand).
-    pub wants_ja_readings: bool,
 }
 
 impl Default for LyricsState {
     fn default() -> Self {
-        Self { track_key: String::new(), status: LyricsStatus::Idle, lyrics: None, source: String::new(), ruby: Vec::new(), wants_ja_readings: false }
+        Self { track_key: String::new(), status: LyricsStatus::Idle, lyrics: None, source: String::new() }
     }
 }
 

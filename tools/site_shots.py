@@ -12,7 +12,7 @@ The read-along picture (the Music page with the pronunciation under Korean
 lyrics) comes from a run with the sample song in Korean. Give the language as
 a third argument and only that page is cut, as page-media-ko.webp:
 
-    PONI_SELFTEST_DPI=192 PONI_SELFTEST_LYRICS=ko tools/run-selftest-wine.sh target/.../poni.exe out-classic-ko
+    PONI_SELFTEST_DPI=192 tools/run-selftest-wine.sh target/.../poni.exe out-classic-ko
     python3 tools/site_shots.py out-classic-ko classic ko
 
 Shoot both themes in the same minute (run them side by side) so the island's

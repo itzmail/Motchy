@@ -44,7 +44,7 @@ use crate::state::{
     OyenzaState, PhoneAsk, PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, PrayerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
-use poni_core::addons::{Status as AddonStatus, DOWNLOADER, JAPANESE_READINGS, MEETING_NOTES, NOTIFICATIONS, PRAYER_TIMES, SCRIPT_READER, SYSTEM};
+use poni_core::addons::{Status as AddonStatus, DOWNLOADER, MEETING_NOTES, NOTIFICATIONS, PRAYER_TIMES, SCRIPT_READER, SYSTEM};
 use poni_core::notifications::NotificationSettings;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::lrc::{parse_lrc, Lyrics};
@@ -155,53 +155,6 @@ const LYRICS_LRC: &str = "\
 [01:27.50]Every little ripple something someone meant
 [01:33.00]So I fold another and I let it drift away
 [01:38.50]Paper boats, I'll meet you there someday
-";
-
-/// The same song in Japanese, Korean and Chinese (written for the test, same
-/// timings), for the pronunciation lines (PONI_SELFTEST_LYRICS=ja|ko|zh).
-const LYRICS_JA: &str = "\
-[00:38.00]朝をたたんで小さな形にした
-[00:43.50]港の壁のそばで水に浮かべた
-[00:49.00]端ににじんだインク、昔の名前
-[00:54.50]流れを見つけて、遠くへ行った
-[01:00.00]紙の舟よ、言えなかった言葉を運んで
-[01:05.50]灰色の海をこえて湾の向こうへ
-[01:11.00]潮がやさしければ光を見つける
-[01:16.50]桟橋のランタンは夜通し灯る
-[01:22.00]小さな帆はどれも出せない手紙
-[01:27.50]小さな波はどれも誰かの想い
-[01:33.00]だから また ひとつ おって ながすよ
-[01:38.50]紙の舟よ、いつかそこで会おう OK
-";
-
-const LYRICS_KO: &str = "\
-[00:38.00]아침을 접어서 작게 만들었어
-[00:43.50]항구 벽 옆에서 물 위에 띄웠어
-[00:49.00]가장자리에 번진 잉크, 옛 이름
-[00:54.50]물길을 찾아서 멀리 떠나갔어
-[01:00.00]종이배야, 못 한 말을 실어 가 줘
-[01:05.50]회색 바다를 건너 만 너머로
-[01:11.00]물결이 다정하면 빛을 찾겠지
-[01:16.50]부두의 등불은 밤새 타올라
-[01:22.00]작은 돛마다 부치지 못한 편지
-[01:27.50]작은 물결마다 누군가의 마음
-[01:33.00]그래서 또 하나 접어 흘려보내
-[01:38.50]종이배야, 언젠가 거기서 만나 Oh
-";
-
-const LYRICS_ZH: &str = "\
-[00:38.00]把清晨折成小小的形状
-[00:43.50]放在港口的墙边水面上
-[00:49.00]边缘晕开的墨水，旧日的名字
-[00:54.50]看它找到水流，看它远去
-[01:00.00]纸船啊，带走我说不出的话
-[01:05.50]越过灰色的海，驶向海湾那边
-[01:11.00]如果潮水温柔，它们会找到光
-[01:16.50]码头的灯笼彻夜燃烧
-[01:22.00]每一片小帆都是没寄出的信
-[01:27.50]每一道涟漪都是谁的心意
-[01:33.00]所以我再折一只，让它漂走
-[01:38.50]纸船啊，总有一天我们在那里相见
 ";
 
 const NOTES_TXT: &str = "Weekend trip\n\n- ferry leaves at 9:40\n- pack the blue jacket\n- ask about the lighthouse tour\n";
@@ -1047,10 +1000,6 @@ enum Scene {
     SystemGames,
     /// System page, Games, before the one-time OK.
     SystemGamesAllow,
-    /// Music: a Japanese song whose kanji went unread, offering Japanese readings.
-    JaOffer,
-    /// Music: ...and Japanese readings coming in.
-    JaGetting,
     /// The idle pill in the status bar look (the Pill theme's; the other
     /// themes show the clock).
     IdleStatus,
@@ -1199,7 +1148,7 @@ const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll
 Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
 No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
 
-const SCENES: [Scene; 117] = [
+const SCENES: [Scene; 115] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -1265,8 +1214,6 @@ const SCENES: [Scene; 117] = [
     Scene::GameStatsAllow,
     Scene::SystemGames,
     Scene::SystemGamesAllow,
-    Scene::JaOffer,
-    Scene::JaGetting,
     // Appended so the numbers above stay. Every theme runs them; the Pill
     // theme draws the first two its own way.
     Scene::IdleStatus,
@@ -1412,8 +1359,6 @@ impl Scene {
             Scene::GameStatsAllow => "game-stats-allow".into(),
             Scene::SystemGames => "page-system-games".into(),
             Scene::SystemGamesAllow => "page-system-games-allow".into(),
-            Scene::JaOffer => "page-media-ja-offer".into(),
-            Scene::JaGetting => "page-media-ja-getting".into(),
             Scene::IdleStatus => "idle-status".into(),
             Scene::MediaLyric => "media-lyric".into(),
             Scene::LowBatteryHud => "low-battery-hud".into(),
@@ -1488,7 +1433,6 @@ impl Scene {
             | Scene::SystemPowerEstimate => Some(PageKind::System),
             Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
-            Scene::JaOffer | Scene::JaGetting => Some(PageKind::Media),
             Scene::PrayerPicker | Scene::PrayerPickerWorld | Scene::PrayerWorld => Some(PageKind::Prayer),
             Scene::ScriptReading | Scene::ScriptRecorder => Some(PageKind::Script),
             Scene::TodayDay | Scene::TodayNoApps | Scene::TodayTiles | Scene::TodayOff | Scene::TodayPicked => Some(PageKind::Today),
@@ -1928,8 +1872,6 @@ pub struct SelfTest {
     slow_frames: Vec<String>,
     glass_size: Cell<(i32, i32)>,
     glass_scene: Cell<Option<Scene>>,
-    /// PONI_SELFTEST_LYRICS=ja|ko|zh: the sample song in that language.
-    lyrics_lang: Option<String>,
     renderer: &'static str,
     /// The seeded shelf and its thumbnails (the empty-shelf scene hides
     /// them, and the page forgets thumbnails of items that left).
@@ -2001,7 +1943,7 @@ impl SelfTest {
             slow_frames: Vec::new(),
             glass_size: Cell::new((0, 0)),
             glass_scene: Cell::new(None),
-            lyrics_lang: std::env::var("PONI_SELFTEST_LYRICS").ok().map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty()),
+
             renderer: "software",
             shelf_items: Vec::new(),
             shelf_thumbs: Vec::new(),
@@ -2061,13 +2003,7 @@ impl SelfTest {
         // PONI_SELFTEST_LRC=<file>: a real song for a one-off check on CI
         // (fetched there at run time; song lyrics never go in the repo).
         let file = std::env::var("PONI_SELFTEST_LRC").ok().and_then(|p| fs::read_to_string(p.trim()).ok());
-        let lrc = match (file.as_deref(), self.lyrics_lang.as_deref()) {
-            (Some(f), _) => f,
-            (None, Some("ja")) => LYRICS_JA,
-            (None, Some("ko")) => LYRICS_KO,
-            (None, Some("zh")) => LYRICS_ZH,
-            _ => LYRICS_LRC,
-        };
+        let lrc = file.as_deref().unwrap_or(LYRICS_LRC);
         let parsed = parse_lrc(lrc);
         if file.is_none() {
             let lyric_ok = parsed.synced && parsed.lines.len() == 12 && parsed.line_index_at(TRACK_POS_S) == Some(4);
@@ -2080,71 +2016,7 @@ impl SelfTest {
         if let Some(pos) = lyric_scene_pos(&parsed) {
             self.lyric_pos = pos;
         }
-        // PONI_SELFTEST_ANALYZER: "required" (Windows CI) = Windows' own
-        // analyzer must work and every line must read, kanji lines included;
-        // "off" = read the song the way a PC without Windows' Japanese reading
-        // data does (Oyenza Studio's own dictionary), every line too; "kana" = the
-        // way 0.1.11 and older read it there (kana lines only), for
-        // before/after pictures. Without it, Wine has no analyzer, so its
-        // lines come from Oyenza Studio's own dictionary.
-        let analyzer = std::env::var("PONI_SELFTEST_ANALYZER").map(|v| v.trim().to_ascii_lowercase()).unwrap_or_default();
-        let texts: Vec<&str> = parsed.lines.iter().map(|l| l.text.trim()).collect();
-        let japanese = poni_core::romanize::song_script(&texts) == Some(poni_core::romanize::Script::Japanese);
-        if analyzer == "required" {
-            let works = crate::services::romanize::analyzer_works();
-            self.checks.push(check("japanese-analyzer", works.is_ok(), works.err().unwrap_or_else(|| "Windows' analyzer reads Japanese".into())));
-        }
-        // PONI_SELFTEST_JA_DICT=<file> (CI passes the repo's copy): Oyen
-        // Poni's own dictionary, put where the Japanese readings add-on keeps
-        // it, so the run reads Japanese the way a PC with the add-on does.
-        if let Ok(src) = std::env::var("PONI_SELFTEST_JA_DICT") {
-            let file = &JAPANESE_READINGS.files[0];
-            let to = crate::services::addons::file_path(&JAPANESE_READINGS, file.name);
-            let placed = fs::read(src.trim()).map_err(|e| format!("{}: {e}", src.trim())).and_then(|b| {
-                if !file.matches(&b) {
-                    return Err(format!("{} bytes, not the dictionary the add-on pins", b.len()));
-                }
-                to.parent().map(fs::create_dir_all).transpose().map_err(|e| e.to_string())?;
-                fs::write(&to, &b).map_err(|e| e.to_string())
-            });
-            self.checks.push(check("ja-readings-file", placed.is_ok(), placed.map_or_else(|e| e, |_| format!("{} in the add-on's folder", file.name))));
-        }
-        let (ruby, wants_ja_readings) = if japanese && analyzer == "off" {
-            let read = crate::services::romanize::own_song(&texts);
-            (read.ruby, read.wants_ja_readings)
-        } else if japanese && analyzer == "kana" {
-            // A PC without Windows' Japanese data or the add-on: kana lines
-            // read, and the Music page offers the add-on.
-            let kana = |t: &str| if poni_core::romanize::needs_roman(t) { poni_core::romanize::japanese_kana_ruby(t).unwrap_or_default() } else { Vec::new() };
-            (texts.iter().map(|t| kana(t)).collect(), true)
-        } else {
-            // Read on a thread in the multithreaded apartment, the way the
-            // lyrics worker reads a real song (the UI thread here is
-            // single-threaded, and Windows' Japanese analyzer only works from one).
-            let read = std::thread::scope(|s| {
-                s.spawn(|| {
-                    let _com = crate::services::http::MtaGuard::new();
-                    crate::services::romanize::pronounce(&parsed)
-                })
-                .join()
-                .unwrap_or_default()
-            });
-            (read.ruby, read.wants_ja_readings)
-        };
-        let lang = self.lyrics_lang.clone().or_else(|| file.as_ref().map(|_| "lrc".to_string()));
-        if let Some(lang) = &lang {
-            // The CI log shows how each line reads (on Windows the Japanese
-            // readings come from the system's analyzer).
-            let read = |p: &[poni_core::romanize::Ruby]| p.iter().filter(|r| !r.roman.is_empty()).map(|r| r.roman.as_str()).collect::<Vec<_>>().join(" ");
-            let needing = texts.iter().filter(|t| poni_core::romanize::needs_roman(t)).count();
-            let lines_read = ruby.iter().filter(|p| p.iter().any(|r| !r.roman.is_empty())).count();
-            for (line, p) in parsed.lines.iter().zip(&ruby) {
-                crate::pinfo!("selftest: [{lang}] {} -> {}", line.text, read(p));
-            }
-            let ok = if matches!(analyzer.as_str(), "required" | "off") { lines_read == needing } else { lines_read > 0 };
-            self.checks.push(check("lyrics-pronunciation", ok, format!("{lines_read} of {needing} {lang} lines read in Latin letters")));
-        }
-        self.lyrics = LyricsState { track_key: self.track_key.clone(), status: LyricsStatus::Found, lyrics: Some(parsed), source: "Sample".into(), ruby, wants_ja_readings };
+        self.lyrics = LyricsState { track_key: self.track_key.clone(), status: LyricsStatus::Found, lyrics: Some(parsed), source: "Sample".into() };
 
         seed_tasks(st);
         let today = st.day_key();
@@ -2826,11 +2698,6 @@ impl SelfTest {
             _ => AddonStatus::Off,
         };
         st.addons.insert(PRAYER_TIMES.id, addon);
-        let ja = match scene {
-            Scene::JaGetting => AddonStatus::Downloading { done: 1_700_000, total: JAPANESE_READINGS.size() },
-            _ => AddonStatus::Off,
-        };
-        st.addons.insert(JAPANESE_READINGS.id, ja);
         // Script reader: on for the Script page's scenes, off (no tab) elsewhere.
         let script = scene.page() == Some(PageKind::Script);
         st.addons.insert(SCRIPT_READER.id, if script { AddonStatus::Ready } else { AddonStatus::Off });
@@ -2860,9 +2727,6 @@ impl SelfTest {
         }
         // Oyen in the Oyenza tab long since arrived: at rest in every picture.
         st.ui.oyen_tab = Some((crate::oyen::TabMove::Arrive, f64::NEG_INFINITY));
-        if scene.media_playing() {
-            st.lyrics.wants_ja_readings = self.lyrics.wants_ja_readings || matches!(scene, Scene::JaOffer | Scene::JaGetting);
-        }
         seed_prayer(st, scene, until);
         // The Script page: empty, or partway through the sample script.
         st.script = poni_core::script::Reader::default();
@@ -3738,10 +3602,7 @@ fn lyric_line_check(st: &AppState) -> Check {
     let lyrics = st.lyrics.lyrics.as_ref().filter(|_| st.lyrics.track_key == m.track_key);
     match lyrics.and_then(|l| l.line_index_at(pos).map(|k| (k, l.lines[k].text.trim()))) {
         Some((k, text)) if !text.is_empty() => {
-            // The reading the pill sings under it, when the song has them.
-            let reading = st.lyrics.ruby.get(k).filter(|_| st.settings.lyrics_pronunciation).and_then(|p| poni_core::romanize::reading(p));
-            let under = reading.map(|r| format!(", read \"{r}\"")).unwrap_or_default();
-            check("lyric-line", true, format!("line {} \"{text}\"{under} sung at {pos:.1} s", k + 1))
+            check("lyric-line", true, format!("line {} \"{text}\" sung at {pos:.1} s", k + 1))
         }
         Some((k, _)) => check("lyric-line", false, format!("line {} at {pos:.1} s has no words", k + 1)),
         None => check("lyric-line", false, format!("no synced line at {pos:.1} s")),

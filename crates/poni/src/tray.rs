@@ -57,7 +57,6 @@ pub enum MenuCmd {
     SetTheme(Theme),
     ToggleSystemHistory,
     ToggleLyrics,
-    TogglePronunciation,
     /// true: hide in full-screen apps; false: stay on top of them.
     SetHideFullscreen(bool),
     /// Show over games (frame rate, GPU and CPU on the island over a game).
@@ -134,7 +133,6 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink, recorder: boo
         MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
         MenuItem::Separator,
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
-        item("Lyrics pronunciation (romaji, pinyin, Korean)", MenuCmd::TogglePronunciation, s.lyrics_pronunciation),
         apple_music_menu(),
         oyenza_menu(s, oyenza),
         item("Sounds", MenuCmd::ToggleSounds, s.sounds),

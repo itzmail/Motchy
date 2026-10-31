@@ -242,8 +242,8 @@ mod tests {
         assert_eq!(rows(&st).len(), without + 2);
         assert!(height(&st) <= MAX_H, "the window never grows for this page");
         let h = row_h(rows(&st).len());
-        assert!(h < TWO_LINES, "that many rows are a line each");
-        assert!(BADGE_ONE_LINE.min(h - 2.0) + 2.0 <= h, "{h} DIPs: the badges keep apart");
+        // Few rows keep two lines each; many are a line each, badges apart.
+        assert!(h >= TWO_LINES || BADGE_ONE_LINE.min(h - 2.0) + 2.0 <= h, "{h} DIPs: the badges keep apart");
     }
 
     #[test]

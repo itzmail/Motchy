@@ -30,8 +30,6 @@ pub mod media;
 mod mediaremote;
 #[path = "services/mic.rs"]
 pub mod mic;
-#[path = "services/romanize.rs"]
-pub mod romanize;
 #[path = "services/secret.rs"]
 pub mod secret;
 #[path = "services/smc.rs"]

@@ -9,7 +9,6 @@
 //! app runs too) does the downloading.
 
 use crate::phonedrop::fmt_bytes;
-use crate::settings::Settings;
 use crate::sha256;
 
 /// Where the files live: `<RELEASES>/<tag>/<name>`.
@@ -125,30 +124,6 @@ pub const PRAYER_TIMES: Addon = Addon {
         AddonFile { name: "places.json", size: 79_687, sha256: "4d2e1cd6c277b97273f415cf0460579db143fe92ac88f6e4bddb79cdf8cbf69b", url: None },
         AddonFile { name: "adzan.m4a", size: 1_822_513, sha256: "bd5a9db9d23eb2fb7e3368c33afeb08603b71b762549ba8247491c5aac24cb59", url: None },
         AddonFile { name: "NOTICE.txt", size: 869, sha256: "a1762a46d2ff3c7456070f76fe370e02e169f30ee749fea7763568034401185a", url: None },
-    ],
-    pro: false,
-};
-
-/// The Japanese readings add-on's dictionary file (`romanize::JaDict`).
-pub const JA_READINGS_FILE: &str = "ja-readings.dic.zst";
-
-/// Japanese readings: Oyenza Studio's own reading dictionary, for romaji under
-/// kanji on Macs and on PCs where Windows has no Japanese reading data (most
-/// PCs outside Japan). Only people who play Japanese songs need it: the first
-/// song whose kanji go unread switches it on ([`ja_switches_on`], once;
-/// switched off by hand it stays off, and the Music page offers it under the
-/// lyrics). The file is
-/// `crates/poni-core/data/ja-readings.dic.zst` (tools/make_ja_dict.py), its
-/// notice `addons/ja/NOTICE.txt`.
-pub const JAPANESE_READINGS: Addon = Addon {
-    id: "ja",
-    title: "Japanese readings",
-    blurb: "Romaji under kanji in Japanese lyrics, where Windows can't read them.",
-    mac_blurb: Some("Romaji under kanji in Japanese lyrics."),
-    tag: "addon-ja-1",
-    files: &[
-        AddonFile { name: JA_READINGS_FILE, size: 3_790_036, sha256: "4950e5e42a2a48ad50396304c6bfbb8f9a97b33947e147007943361d65d856c8", url: None },
-        AddonFile { name: "NOTICE.txt", size: 4_786, sha256: "fb8cd0420c2a8b04404c17a1a2ada30e0e1bbd73e54ef548bb60ede42198e079", url: None },
     ],
     pro: false,
 };
@@ -303,30 +278,8 @@ pub const MEETING_NOTES: Addon = Addon {
 };
 
 /// Every add-on, in the order the Add-ons page lists them.
-pub const ALL: [&Addon; 8] =
-    [&PRAYER_TIMES, &JAPANESE_READINGS, &SCRIPT_READER, &SYSTEM, &NOTIFICATIONS, &MEETING_NOTES, &SCREEN_RECORDER, &DOWNLOADER];
-
-/// Whether Japanese readings switch themselves on for a song whose kanji went
-/// unread for want of them (`wants`): only while the person reads
-/// pronunciations, and only if they never switched the add-on on or off
-/// themselves (one switched off by hand stays off).
-pub fn ja_switches_on(settings: &Settings, wants: bool) -> bool {
-    wants && settings.lyrics_pronunciation && settings.addon_unset(JAPANESE_READINGS.id)
-}
-
-/// What the Music page says under a Japanese song whose kanji went unread for
-/// want of Japanese readings, by where that add-on stands, and whether a
-/// click gets it (switches it on). None once it's in place.
-pub fn ja_offer(status: Status) -> Option<(String, bool)> {
-    match status {
-        Status::Off => Some((format!("Romaji for kanji: get Japanese readings ({})", fmt_bytes(JAPANESE_READINGS.size())), true)),
-        Status::Checking => Some(("Checking Japanese readings\u{2026}".to_string(), false)),
-        Status::Downloading { done, total } => Some((format!("Getting Japanese readings \u{b7} {} of {}", fmt_bytes(done), fmt_bytes(total)), false)),
-        Status::Waiting => Some(("Japanese readings download once you're online".to_string(), false)),
-        Status::Failed | Status::Unpinned => Some(("Japanese readings didn't download: see Add-ons".to_string(), false)),
-        Status::Ready => None,
-    }
-}
+pub const ALL: [&Addon; 7] =
+    [&PRAYER_TIMES, &SCRIPT_READER, &SYSTEM, &NOTIFICATIONS, &MEETING_NOTES, &SCREEN_RECORDER, &DOWNLOADER];
 
 /// Where an add-on stands, as the Add-ons page shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -384,29 +337,12 @@ impl Status {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn japanese_readings_switch_on_once_for_a_song_that_needs_them() {
-        let mut s = Settings::default();
-        assert!(ja_switches_on(&s, true), "the first Japanese song with unread kanji");
-        assert!(!ja_switches_on(&s, false), "a song that reads without them");
-        s.lyrics_pronunciation = false;
-        assert!(!ja_switches_on(&s, true), "pronunciations off: nothing to read them for");
-        s.lyrics_pronunciation = true;
-        s.set_addon(JAPANESE_READINGS.id, true);
-        assert!(!ja_switches_on(&s, true), "already on");
-        s.set_addon(JAPANESE_READINGS.id, false);
-        assert!(!ja_switches_on(&s, true), "switched off by hand: stays off");
-        // Another add-on's switch doesn't count as an answer.
-        let mut s = Settings::default();
-        s.set_addon(PRAYER_TIMES.id, false);
-        assert!(ja_switches_on(&s, true));
-    }
+    use crate::settings::Settings;
 
     #[test]
     fn script_reader_is_built_in() {
         assert!(!SCRIPT_READER.downloads() && SCRIPT_READER.size() == 0);
-        assert!(PRAYER_TIMES.downloads() && JAPANESE_READINGS.downloads());
+        assert!(PRAYER_TIMES.downloads() && DOWNLOADER.downloads());
         assert_eq!(Status::Ready.line(&SCRIPT_READER, false), "On");
         assert_eq!(Status::Off.line(&SCRIPT_READER, true), "A teleprompter under your webcam.");
         assert_eq!(Addon::find("script"), Some(&SCRIPT_READER));
@@ -463,40 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn japanese_readings_files_are_the_ones_in_the_repo() {
-        // The dictionary make_ja_dict.py builds, and the notice that travels with it.
-        let repo: [(&str, &[u8]); 2] = [
-            (JA_READINGS_FILE, include_bytes!("../data/ja-readings.dic.zst")),
-            ("NOTICE.txt", include_bytes!("../../../addons/ja/NOTICE.txt")),
-        ];
-        assert_eq!(JAPANESE_READINGS.files.len(), repo.len());
-        for (f, (name, bytes)) in JAPANESE_READINGS.files.iter().zip(repo) {
-            assert_eq!(f.name, name);
-            assert!(f.matches(bytes), "{name}: size {} sha256 {}", bytes.len(), sha256::hex(&sha256::sha256(bytes)));
-        }
-        let ja = Addon::find("ja").unwrap();
-        assert_eq!(ja.url(&ja.files[0]), "https://github.com/lucacadalora/oyenza-studio/releases/download/addon-ja-1/ja-readings.dic.zst");
-        assert_eq!(Status::Off.line(ja, false), ja.blurb);
-        assert_eq!(Status::Ready.line(ja, false), "On · 3.8 MB on this PC");
-        // The Mac app has no Windows reason to give, and says Mac.
-        assert_eq!(Status::Off.line(ja, true), "Romaji under kanji in Japanese lyrics.");
-        assert_eq!(Status::Checking.line(ja, true), "Checking its files on this Mac");
-        assert_eq!(Status::Ready.line(ja, true), "On · 3.8 MB on this Mac");
-    }
-
-    #[test]
-    fn the_music_page_offers_japanese_readings_until_they_are_here() {
-        assert_eq!(ja_offer(Status::Off), Some(("Romaji for kanji: get Japanese readings (3.8 MB)".to_string(), true)));
-        let (line, click) = ja_offer(Status::Downloading { done: 1_700_000, total: JAPANESE_READINGS.size() }).unwrap();
-        assert_eq!(line, "Getting Japanese readings · 1.7 MB of 3.8 MB");
-        assert!(!click);
-        for s in [Status::Checking, Status::Waiting, Status::Failed] {
-            assert!(ja_offer(s).is_some_and(|(_, click)| !click), "{s:?} says where it stands, nothing to click");
-        }
-        assert_eq!(ja_offer(Status::Ready), None);
-    }
-
-    #[test]
     fn files_come_from_the_release() {
         let a = Addon::find("sholat").unwrap();
         assert_eq!(a.url(&a.files[1]), "https://github.com/lucacadalora/oyenza-studio/releases/download/addon-sholat-1/adzan.m4a");
@@ -521,7 +423,7 @@ mod tests {
     fn add_ons_are_listed_in_order_each_with_its_own_id() {
         // The Add-ons page's order: the Downloader last.
         let ids: Vec<&str> = ALL.iter().map(|a| a.id).collect();
-        assert_eq!(ids, ["sholat", "ja", "script", "system", "notifications", "notes", "recorder", "downloader"]);
+        assert_eq!(ids, ["sholat", "script", "system", "notifications", "notes", "recorder", "downloader"]);
         for (i, a) in ALL.iter().enumerate() {
             // The key in settings.json and the folder's name.
             assert!(!a.id.is_empty() && a.id.bytes().all(|b| b.is_ascii_lowercase()), "{}", a.id);
@@ -612,7 +514,6 @@ mod tests {
         assert!(!s.is_on() && s.progress().is_none());
         assert_eq!(s.line(&SOON, false), "This version can't get its files yet, so it stays off.");
         assert_eq!(s.line(&SOON, true), s.line(&SOON, false));
-        assert!(ja_offer(s).is_some_and(|(_, click)| !click));
     }
 
     #[test]
@@ -628,9 +529,9 @@ mod tests {
 
     #[test]
     fn a_file_on_disk_is_checked_a_piece_at_a_time() {
-        // The dictionary (3.8 MB) in 64 KB reads, against the same pin.
-        let dict: &[u8] = include_bytes!("../data/ja-readings.dic.zst");
-        let f = &JAPANESE_READINGS.files[0];
+        // The prayer add-on's notice, read in pieces against its pin.
+        let dict: &[u8] = include_bytes!("../../../addons/sholat/NOTICE.txt");
+        let f = PRAYER_TIMES.files.iter().find(|f| f.name == "NOTICE.txt").unwrap();
         assert!(f.matches_read(dict));
         let mut changed = dict.to_vec();
         *changed.last_mut().unwrap() ^= 1;

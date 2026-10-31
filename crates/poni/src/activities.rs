@@ -293,11 +293,7 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
             } else {
                 MEDIA_W
             };
-            if crate::pill::lyric::reads(st) {
-                Geom::new(w, crate::pill::media::H_READS, 22.0)
-            } else {
-                Geom::new(w, 32.0, 15.0)
-            }
+            Geom::new(w, 32.0, 15.0)
         }
         Mode::Activity(Activity::Timer) => {
             // "MM:SS" until the countdown needs another digit.
@@ -1064,7 +1060,7 @@ mod tests {
             track_key: key.clone(),
         });
         if let Some(l) = lrc {
-            st.lyrics = LyricsState { track_key: key, status: LyricsStatus::Found, lyrics: Some(parse_lrc(l)), source: "Sample".into(), ruby: Vec::new(), wants_ja_readings: false };
+            st.lyrics = LyricsState { track_key: key, status: LyricsStatus::Found, lyrics: Some(parse_lrc(l)), source: "Sample".into() };
         }
         st
     }
@@ -1087,23 +1083,6 @@ mod tests {
         let mut paused = sung;
         paused.media.as_mut().unwrap().timeline = Timeline::new(12.0, 200.0, 0.0, false);
         assert!(crate::pill::lyric::sings(&paused));
-    }
-
-    #[test]
-    fn music_with_readings_is_two_rows_tall_in_every_theme() {
-        use poni_core::romanize::Ruby;
-        use poni_core::settings::Theme;
-        let media = Mode::Activity(Activity::Media);
-        let mut st = playing(Some("[00:10.00]紙の舟よ\n[00:14.00]Paper boats\n"));
-        assert_eq!(geom(&media, &st).h, 32.0, "no readings: one row");
-        st.lyrics.ruby = vec![vec![Ruby { text: "紙の舟よ".into(), roman: "kami no fune yo".into() }], Vec::new()];
-        for theme in [Theme::Classic, Theme::Oyen, Theme::Glass, Theme::Pill] {
-            st.settings.theme = theme;
-            assert_eq!(geom(&media, &st).h, crate::pill::media::H_READS, "{theme:?}: the line over its reading");
-        }
-        // Readings switched off: one row again, as for a song without them.
-        st.settings.lyrics_pronunciation = false;
-        assert_eq!(geom(&media, &st).h, 32.0);
     }
 
     /// Prayer times on in Kota Jakarta with a song singing its line, the
