@@ -139,8 +139,8 @@ enum Scene {
     RecordPaused,
     AddonsRecorder,
     /// The AI tab with made-up readings (`pages::usage::picture`): plans
-    /// and limits, a trouble mix, nothing found, the first look, connecting
-    /// and connected Oyenza Inference, the Services list.
+    /// and limits, a trouble mix, nothing found, the first look, the
+    /// Services list.
     Ai(crate::pages::usage::Picture),
     /// Meeting notes, signed in with Studio Pro: the page while Oyen listens
     /// (42 s in), the closed island 12 minutes in (around a notch, Oyen in

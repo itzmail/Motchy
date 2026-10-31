@@ -895,7 +895,7 @@ enum Scene {
     Ai(AiPicture),
     /// The AI tab's heads-up notice: Claude Code close to its 5-hour limit.
     AiNotice,
-    /// ...and Codex out of it, Oyenza Inference connected: its nudge.
+    /// ...and Codex out of it.
     AiNoticeOut,
     /// Settings with Today and Tasks taken off the tab row: their chips
     /// struck through, the header's row without them.
@@ -934,8 +934,7 @@ fn fake_release() -> poni_core::update::Release {
 
 /// The AI tab's notice in its scenes, worded by the real alerts from two
 /// readings of a 5-hour limit that resets in 2 h 20 min, on the app's clock:
-/// Claude Code from 70 to 90 %, or Codex from 70 % to all used with Oyenza
-/// Inference connected.
+/// Claude Code from 70 to 90 %, or Codex from 70 % to all used.
 fn ai_alert(st: &AppState, out: bool) -> Option<studio_usage::alerts::Alert> {
     use studio_usage::{alerts, ProviderId, Snapshot, Source, Window, WindowKind};
     let id = if out { ProviderId::Codex } else { ProviderId::Claude };
@@ -943,8 +942,7 @@ fn ai_alert(st: &AppState, out: bool) -> Option<studio_usage::alerts::Alert> {
         windows: vec![Window::new(WindowKind::Session, "5-hour", used).resets(Some(st.unix + 2 * 3600 + 20 * 60)).length(Some(18_000))],
         ..Snapshot::new(id, st.unix, Source::Online)
     };
-    let cfg = alerts::AlertCfg { inference: out, ..st.usage_alert_cfg() };
-    alerts::changes(Some(&read(0.7)), &read(if out { 1.0 } else { 0.9 }), st.unix, &cfg).into_iter().next()
+    alerts::changes(Some(&read(0.7)), &read(if out { 1.0 } else { 0.9 }), st.unix, &st.usage_alert_cfg()).into_iter().next()
 }
 
 /// Running under Wine: its ntdll exports `wine_get_version`.
@@ -959,7 +957,7 @@ const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll
 Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
 No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
 
-const SCENES: [Scene; 99] = [
+const SCENES: [Scene; 97] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -1067,14 +1065,11 @@ const SCENES: [Scene; 99] = [
     Scene::NotifyNoPackage,
     // The AI tab, a core tab after Focus, in every picture the page has
     // (`AiPicture::ALL`): plans, troubles, nothing found, the first look,
-    // Oyenza Inference connecting and connected, the Services list and a
-    // key being typed there.
+    // the Services list and a key being typed there.
     Scene::Ai(AiPicture::Plans),
     Scene::Ai(AiPicture::Troubles),
     Scene::Ai(AiPicture::Empty),
     Scene::Ai(AiPicture::Looking),
-    Scene::Ai(AiPicture::Connect),
-    Scene::Ai(AiPicture::Inference),
     Scene::Ai(AiPicture::Services),
     Scene::Ai(AiPicture::Key),
     // Its heads-up notices on the closed island.

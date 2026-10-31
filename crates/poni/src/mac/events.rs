@@ -130,7 +130,7 @@ pub enum AppEvent {
     Located(crate::services::location::Located),
     /// One of Prayer times' online city files (`services::cities`).
     Cities { file: String, got: Result<poni_core::prayer::World, String> },
-    /// The AI tab's readings, typed keys, inference.oyenza.com's link and
+    /// The AI tab's readings, typed keys and
     /// heads-up notices (`services::usage`).
     Usage(crate::services::usage::UsageEvent),
     /// Prayer times' adzan played to its end (`services::adzan`).

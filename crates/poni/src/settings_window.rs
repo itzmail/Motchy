@@ -513,7 +513,7 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
             if u.notices {
                 rows.push(item(Key::AiNear, "Close to the limit at", None, Ctl::Stepper(format!("{} %", st.usage_near_pct()))));
             }
-            vec![Block::Group(None, rows), Block::Note("Services, keys and the Oyenza Inference connect are on the AI tab.")]
+            vec![Block::Group(None, rows), Block::Note("Services and keys are on the AI tab.")]
         }
         Section::Oyenza => vec![Block::Account],
         Section::About => vec![

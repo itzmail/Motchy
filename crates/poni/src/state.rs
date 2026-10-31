@@ -459,8 +459,6 @@ pub struct RecView {
 pub struct UsageState {
     /// Each service's last reading.
     pub readings: BTreeMap<ProviderId, Reading>,
-    /// inference.oyenza.com's balance and spend, once connected.
-    pub inference: InferenceLink,
     /// The secret names (`usage::KeyAsk::secret`) that hold a typed key.
     pub keys: BTreeSet<&'static str>,
     /// A refresh is under way.
@@ -480,23 +478,6 @@ pub struct Reading {
     pub trouble: Option<Trouble>,
     /// When the latest refresh ended, unix seconds.
     pub checked_at: i64,
-}
-
-/// inference.oyenza.com on the AI tab: connected by a code the person
-/// approves in its dashboard, after which Studio holds a read-only key.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum InferenceLink {
-    #[default]
-    Off,
-    /// Asking for a code.
-    Starting,
-    /// A code on screen, waiting for approval at `url`, until unix `expires_at`.
-    Code { code: String, url: String, expires_at: i64 },
-    /// Connected: its balance and spend are read.
-    On { account: String },
-    /// Connecting didn't work (why, in a few words).
-    #[allow(dead_code)] // until the AI tab's worker lands: it says why connecting stopped
-    Failed(String),
 }
 
 impl UsageState {
@@ -524,7 +505,6 @@ impl UsageState {
                 r.checked_at = at;
             }
             UsageEvent::Keys(keys) => self.keys = keys,
-            UsageEvent::Link(link) => self.inference = link,
             UsageEvent::Refreshing(on) => self.refreshing = on,
             UsageEvent::Alerts(_) => {}
         }
@@ -546,35 +526,11 @@ pub fn usage_notice(a: &Alert, accent: Color, until: f64) -> Notice {
         color,
         title: a.title.clone(),
         title_dim: String::new(),
-        subtitle: usage_line(&a.subtitle, a.nudge.as_deref()),
+        subtitle: a.subtitle.clone(),
         until,
         action: Some(NoticeAction::OpenPage(PageKind::Ai)),
         inline: None,
         reveal: None,
-    }
-}
-
-/// How wide a notice's second line may be, by the Pill's guess: Classic's
-/// room for its words (372 - 58 - 22 = 292 DIP; Pill's is wider) less a
-/// little for system fonts wider than the guess.
-const NOTICE_LINE_W: f32 = 280.0;
-
-/// A notice has two lines, so a plan that ran out while Oyenza Inference is
-/// connected puts the nudge after the reset time ("Resets 14:20 · Keep going
-/// on Oyenza Inference") while both fit, else the nudge alone: the AI tab,
-/// a click away, has the reset time.
-fn usage_line(subtitle: &str, nudge: Option<&str>) -> String {
-    match nudge.map(str::trim).filter(|n| !n.is_empty()) {
-        None => subtitle.to_string(),
-        Some(n) if subtitle.trim().is_empty() => n.to_string(),
-        Some(n) => {
-            let both = format!("{} \u{b7} {n}", subtitle.trim());
-            if crate::pill::notice::guess(&both, crate::gfx::ts::FOOTNOTE) <= NOTICE_LINE_W {
-                both
-            } else {
-                n.to_string()
-            }
-        }
     }
 }
 
@@ -882,15 +838,12 @@ impl AppState {
 
     /// What the AI tab's notices go by, for its worker (`alerts::changes`):
     /// that line, and the app's clock for the reset times ("Resets 14:20" or
-    /// "2:20 PM", local). A plan that runs out mentions Oyenza Inference only
-    /// while it is connected and its key works.
+    /// "2:20 PM", local).
     pub fn usage_alert_cfg(&self) -> AlertCfg {
-        let refused = self.usage.readings.get(&ProviderId::Oyenza).is_some_and(|r| matches!(r.trouble, Some(Trouble::Refused | Trouble::Disabled)));
         AlertCfg {
             near: f32::from(self.usage_near_pct()) / 100.0,
             offset_min: poni_core::oyenza::offset_minutes(&self.local, self.unix),
             use_24h: self.settings.use_24h,
-            inference: matches!(self.usage.inference, InferenceLink::On { .. }) && !refused,
             ..AlertCfg::default()
         }
     }
@@ -1010,8 +963,6 @@ mod tests {
         // The next good one clears the trouble.
         u.apply(UsageEvent::Reading { id: ProviderId::Codex, outcome: Ok(snap.clone()), at: 340 });
         assert_eq!(u.readings[&ProviderId::Codex].trouble, None);
-        u.apply(UsageEvent::Link(InferenceLink::On { account: "a•••@example.com".into() }));
-        assert_eq!(u.inference, InferenceLink::On { account: "a•••@example.com".into() });
         // Troubles that pass keep the numbers; the way in taken away drops them.
         let keeps = [
             Trouble::Offline,
@@ -1037,7 +988,7 @@ mod tests {
     }
 
     fn alert(provider: ProviderId, kind: AlertKind, title: &str) -> Alert {
-        Alert { provider, kind, title: title.into(), subtitle: "Resets 14:20".into(), nudge: None }
+        Alert { provider, kind, title: title.into(), subtitle: "Resets 14:20".into() }
     }
 
     /// The titles of the AI notices as they go up, the island free throughout.
@@ -1108,7 +1059,7 @@ mod tests {
     }
 
     #[test]
-    fn an_ai_notice_says_what_ran_out_and_where_to_keep_going() {
+    fn an_ai_notice_has_the_services_mark_and_color() {
         let accent = palette::PURPLE;
         // The service's own mark.
         assert_eq!(usage_notice(&alert(ProviderId::Claude, AlertKind::Out, "t"), accent, 0.0).icon, Icon::Claude);
@@ -1117,20 +1068,6 @@ mod tests {
             [color(AlertKind::Near(90)), color(AlertKind::Out), color(AlertKind::Low), color(AlertKind::Back)],
             [accent, palette::ORANGE, palette::ORANGE, palette::GREEN]
         );
-        // Out with Oyenza Inference connected: the nudge follows the reset time while both fit...
-        let mut a = alert(ProviderId::Claude, AlertKind::Out, "Claude Code: 5-hour used up");
-        a.nudge = Some("Keep going on Oyenza Inference".into());
-        assert_eq!(usage_notice(&a, accent, 0.0).subtitle, "Resets 14:20 \u{b7} Keep going on Oyenza Inference");
-        a.subtitle = "Resets 2:20 PM".into();
-        assert_eq!(usage_notice(&a, accent, 0.0).subtitle, "Resets 2:20 PM \u{b7} Keep going on Oyenza Inference");
-        // ...else it stands alone (the AI tab has the reset time).
-        for long in ["Resets 10:20 AM", "Resets Thu 09:00", "Resets Tue 3 Nov", "None left for now", "Premium requests \u{b7} resets Tue 1 Dec"] {
-            a.subtitle = long.into();
-            assert_eq!(usage_notice(&a, accent, 0.0).subtitle, "Keep going on Oyenza Inference", "{long}");
-        }
-        // Without a nudge the alert's own line stays as it is.
-        a.nudge = None;
-        assert_eq!(usage_notice(&a, accent, 0.0).subtitle, "Premium requests \u{b7} resets Tue 1 Dec");
     }
 
     #[test]
@@ -1147,24 +1084,17 @@ mod tests {
         st.settings.use_24h = false;
         st.settings.usage.near_pct = 80;
         let cfg = st.usage_alert_cfg();
-        assert_eq!((cfg.offset_min, cfg.use_24h, cfg.inference, cfg.floor_usd), (420, false, false, alerts::AlertCfg::default().floor_usd));
-        st.usage.inference = InferenceLink::On { account: "a•••@example.com".into() };
-        assert!(st.usage_alert_cfg().inference);
+        assert_eq!((cfg.offset_min, cfg.use_24h, cfg.floor_usd), (420, false, alerts::AlertCfg::default().floor_usd));
         // What the worker's alerts then say, as the island shows it.
         let five = |used| Window::new(WindowKind::Session, "5-hour", used).resets(Some(st.unix + 2 * 3600 + 20 * 60)).length(Some(18_000));
         let read = |used| Snapshot { windows: vec![five(used)], ..Snapshot::new(ProviderId::Claude, st.unix, Source::Online) };
         let said = alerts::changes(Some(&read(0.7)), &read(1.0), st.unix, &st.usage_alert_cfg());
         let n = usage_notice(&said[0], st.accent, 0.0);
         assert_eq!((n.title.as_str(), n.color), ("Claude Code: 5-hour used up", palette::ORANGE));
-        assert!(n.subtitle.starts_with("Resets 2:20 PM \u{b7} "), "{}", n.subtitle);
+        assert_eq!(n.subtitle, "Resets 2:20 PM");
         // ...and one getting close (the self-test's `ai-notice` reads the same way).
         let said = alerts::changes(Some(&read(0.7)), &read(0.9), st.unix, &st.usage_alert_cfg());
         let n = usage_notice(&said[0], st.accent, 0.0);
         assert_eq!((n.title.as_str(), n.subtitle.as_str(), n.color), ("Claude Code: 90% of 5-hour", "Resets 2:20 PM", st.accent));
-        // A refused or switched-off inference key: no nudge to a dead end.
-        for t in [Trouble::Refused, Trouble::Disabled] {
-            st.usage.readings.insert(ProviderId::Oyenza, Reading { snapshot: None, trouble: Some(t), checked_at: st.unix });
-            assert!(!st.usage_alert_cfg().inference);
-        }
     }
 }

@@ -492,7 +492,7 @@ pub fn env_names() -> Vec<&'static str> {
 }
 
 /// Every name a key is kept under: the typed keys ([`Provider::takes_key`])
-/// and any other [`Want::Secret`] (inference.oyenza.com's).
+/// and any other [`Want::Secret`].
 pub fn secret_names(dirs: &Dirs) -> Vec<&'static str> {
     let mut v = Vec::new();
     for p in all() {
@@ -649,7 +649,7 @@ fn unix(t: SystemTime) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{openrouter, opencode, oyenza, zai, Os, Window, WindowKind};
+    use crate::{openrouter, opencode, zai, Os, Window, WindowKind};
     use std::time::Duration;
 
     const T: i64 = 1_000;
@@ -914,14 +914,14 @@ mod tests {
         let ok = Request::post_json("https://x.test/v1/a?b=c", "{}").bearer("tok").header("Cookie", "a=b; c=d");
         assert!(sendable(&ok));
         for local in ["http://127.0.0.1:8090/v1/studio/summary", "http://localhost/x", "http://[::1]:8090/", "http://127.1.2.3"] {
-            assert!(sendable(&Request::get(local).bearer("oyis_test-token")), "{local}");
+            assert!(sendable(&Request::get(local).bearer("test-token")), "{local}");
         }
         for bad in [
             Request::get("file:///etc/passwd"),
             Request::get("ftp://x.test/"),
             Request::get("https://"),
             // In the clear, only to this computer.
-            Request::get("http://inference.oyenza.com/v1/studio/summary"),
+            Request::get("http://x.test/v1/a"),
             Request::get("http://127.0.0.1.example.com/"),
             Request::get("http://127.0.0.1@example.com/"),
             Request::get("http://localhost.example.com/"),
@@ -929,8 +929,8 @@ mod tests {
             // User info: these go to example.com.
             Request::get("http://localhost:1@example.com/"),
             Request::get("http://127.0.0.1:80@example.com/"),
-            Request::get("https://user@inference.oyenza.com/v1/studio/summary"),
-            Request::get("https://inference.oyenza.com\\@example.com/"),
+            Request::get("https://user@x.test/v1/a"),
+            Request::get("https://x.test\\@example.com/"),
             Request::get("https://x.test/a b"),
             Request::get("https://x.test/\r\nX: 1"),
             Request::get("https://x.test/").header("Authorization", "Bearer a\nb"),
@@ -946,21 +946,6 @@ mod tests {
         assert_eq!(send_headers(&ok), [("Authorization", "Bearer tok"), ("Cookie", "a=b; c=d")]);
         let get = Request::get("https://x.test/").header("content-type", "text/plain");
         assert_eq!(send_headers(&get), [("content-type", "text/plain")]);
-    }
-
-    #[test]
-    fn a_redirect_is_an_answer_the_service_doesnt_read() {
-        // The worker's clients follow no redirect: the 3xx comes back, and the
-        // service reads it as a trouble, without a second request.
-        let dirs = Dirs::sample(Os::Windows);
-        let p = oyenza::Oyenza;
-        let mut asked = Vec::new();
-        let ran = run(&p, &dirs, &p.wants(&dirs), T, Reach::Online, |_| Got::Text("oyis_test-token".into()), |r| {
-            asked.push(r.url.clone());
-            Ok(Reply { status: 302, body: String::new(), retry_after_s: None })
-        });
-        assert_eq!(ran.outcome, Some(Err(Trouble::Unreadable("HTTP 302".into()))));
-        assert_eq!(asked, ["https://inference.oyenza.com/v1/studio/summary"]);
     }
 
     const QUOTA: &str = include_str!("fixtures/zai/quota.json");
@@ -1086,14 +1071,13 @@ mod tests {
         // also reads its own sign-in file, so it never is.
         assert!(typed_key_only(&openrouter::OpenRouter.wants(&dirs), false));
         assert!(!typed_key_only(&opencode::OpenCode.wants(&dirs), false));
-        assert!(typed_key_only(&oyenza::Oyenza.wants(&dirs), false));
     }
 
     #[test]
     fn services_as_bits_and_the_notices_line() {
         assert!(ProviderId::ALL.len() <= 32);
         assert_eq!(bit(ProviderId::Codex), 1);
-        assert_eq!(bit(ProviderId::Oyenza), 1 << 10);
+        assert_eq!(bit(ProviderId::OpenRouter), 1 << 9);
         assert_eq!(bits(&["claude".into(), "nope".into(), "openrouter".into(), "claude".into()]), bit(ProviderId::Claude) | bit(ProviderId::OpenRouter));
         assert_eq!(bits(&[]), 0);
         let all: u32 = ProviderId::ALL.iter().map(|id| bit(*id)).sum();
@@ -1107,13 +1091,13 @@ mod tests {
     #[test]
     fn names_cover_every_service() {
         let env = env_names();
-        for name in ["CODEX_HOME", "OPENROUTER_API_KEY", "PONI_INFERENCE_URL"] {
+        for name in ["CODEX_HOME", "OPENROUTER_API_KEY"] {
             assert!(env.contains(&name), "{name} missing from {env:?}");
         }
         assert!(env.windows(2).all(|w| w[0] < w[1]), "sorted, once each");
         for os in [Os::Windows, Os::Mac] {
             let names = secret_names(&Dirs::sample(os));
-            assert!(names.contains(&oyenza::SECRET) && names.contains(&"openrouter"), "{names:?}");
+            assert!(names.contains(&"openrouter"), "{names:?}");
             for p in all() {
                 if let Some(k) = p.takes_key() {
                     assert!(names.contains(&k.secret), "{:?}", p.id());

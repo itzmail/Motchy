@@ -1,5 +1,5 @@
 //! Small secrets on disk (the Apple Music token, the Oyenza sign-in, the AI
-//! tab's typed keys and its inference.oyenza.com key), readable only by this
+//! tab's typed keys), readable only by this
 //! Mac account: a file with owner-only permissions in Poni's folders. The
 //! Windows app seals the same file with DPAPI, which likewise any program
 //! running as that user can open; the API is the same, so the shared code

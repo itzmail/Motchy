@@ -166,8 +166,7 @@ impl Services {
         }
     }
 
-    /// Something the AI tab asked its worker for (a key, a refresh, the
-    /// inference.oyenza.com link): it starts the thread if need be.
+    /// Something the AI tab asked its worker for (a key, a refresh): it starts the thread if need be.
     pub fn usage_cmd(&self, c: UsageCmd) {
         if let Some(s) = self.usage.get_or_init(|| started("usage", usage::UsageService::start(self.sink.clone()))) {
             s.command(c);

@@ -5,8 +5,7 @@
 //! `usage::pace`. This file reads what the services ask for (their files, a
 //! Mac keychain item, the keys typed into the tab), makes their requests,
 //! keeps the typed keys sealed (`services::secret` at
-//! `paths::usage_key_path`: DPAPI on Windows, an owner-only file on a Mac)
-//! and connects inference.oyenza.com with a code the person approves.
+//! `paths::usage_key_path`: DPAPI on Windows, an owner-only file on a Mac).
 //!
 //! The thread starts the first time the AI tab opens or the person has the
 //! heads-up notices on (`Watch`), and reads only while one of them wants it:
@@ -30,10 +29,9 @@
 use crate::commands::UsageCmd;
 use crate::events::{AppEvent, EventSink};
 use crate::services::http::{Client, FetchError, Method, MtaGuard};
-use crate::state::InferenceLink;
 use studio_usage::alerts::{Alert, AlertCfg, Memory};
 use studio_usage::pace::{self, KeyGate, Look, Looks, Pace, Refusals};
-use studio_usage::{self as usage, oyenza, Dirs, Got, NetFail, Os, Outcome, Provider, ProviderId, Reach, Reply, Request, Snapshot, Trouble, Want};
+use studio_usage::{self as usage, Dirs, Got, NetFail, Os, Outcome, Provider, ProviderId, Reach, Reply, Request, Snapshot, Trouble, Want};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -78,11 +76,8 @@ pub enum UsageEvent {
     /// One service's refresh, finished at unix `at`: what it read, or why
     /// there is nothing.
     Reading { id: ProviderId, outcome: Outcome, at: i64 },
-    /// The secret names that hold a key (the typed ones, and
-    /// inference.oyenza.com's once connected).
+    /// The secret names that hold a key (the typed ones).
     Keys(BTreeSet<&'static str>),
-    /// inference.oyenza.com's link changed.
-    Link(InferenceLink),
     /// Heads-up notices for the island (`studio_usage::alerts`), the
     /// most urgent first.
     Alerts(Vec<Alert>),
@@ -198,9 +193,6 @@ struct Worker {
     watch: Watch,
     /// The notices' choices as of the last look.
     cfg: AlertCfg,
-    /// A code on screen for inference.oyenza.com, and its link as last told.
-    pending: Option<oyenza::Pending>,
-    link: InferenceLink,
     /// The pacing's steady clock.
     epoch: Instant,
 }
@@ -249,8 +241,6 @@ impl Worker {
             looks: Looks::default(),
             watch: Watch::default(),
             cfg: AlertCfg::default(),
-            pending: None,
-            link: InferenceLink::Off,
             epoch: Instant::now(),
         }
     }
@@ -264,15 +254,12 @@ impl Worker {
         self.epoch.elapsed().as_secs() as i64
     }
 
-    /// The keys kept from earlier runs, and so inference.oyenza.com's link. A
+    /// The keys kept from earlier runs. A
     /// key counts once it unseals (a file brought from another computer
     /// doesn't).
     fn restore(&mut self) {
         self.keys = self.names.iter().copied().filter(|n| load_key(n).is_some()).collect();
         self.send(UsageEvent::Keys(self.keys.clone()));
-        if self.keys.contains(oyenza::SECRET) {
-            self.set_link(InferenceLink::On { account: String::new() });
-        }
     }
 
     /// What the island wants, each time the worker looks at its queue.
@@ -287,22 +274,14 @@ impl Worker {
         self.watch = w;
     }
 
-    /// How long the worker may sleep: until the next look or the next ask
-    /// about the code on screen (None: until something changes).
+    /// How long the worker may sleep: until the next look (None: until
+    /// something changes).
     fn next_wait(&self) -> Option<Duration> {
-        let mut wait = self.pending.as_ref().map(|p| Duration::from_secs(p.wait_s(crate::clock::unix_now()).unwrap_or(0)));
-        if let Some(t) = self.looks.due(self.watch.open, self.watch.notices) {
-            let d = Duration::from_secs(t.saturating_sub(self.tick()).max(0) as u64);
-            wait = Some(wait.map_or(d, |w| w.min(d)));
-        }
-        wait
+        self.looks.due(self.watch.open, self.watch.notices).map(|t| Duration::from_secs(t.saturating_sub(self.tick()).max(0) as u64))
     }
 
-    /// What is due: an ask about the code on screen, a look.
+    /// What is due: a look.
     fn due(&mut self, shared: &Shared) {
-        if self.pending.is_some() {
-            self.ask_about_code();
-        }
         if self.looks.due(self.watch.open, self.watch.notices).is_some_and(|t| t <= self.tick()) {
             self.look(shared);
         }
@@ -366,15 +345,10 @@ impl Worker {
         self.watch.added & bit != 0 || !pace::typed_key_only(wants, var_set) || wants.iter().any(|w| matches!(w, Want::Secret(s) if self.keys.contains(s)))
     }
 
-    /// The notices' choices, the app's clock, and whether a plan that runs
-    /// out can carry on at inference.oyenza.com (connected, its key still
-    /// taken, money left).
+    /// The notices' choices and the app's clock.
     fn alert_cfg(&self) -> AlertCfg {
-        let oy = &self.svcs[at(ProviderId::Oyenza)];
-        let spent = oy.kept.as_ref().and_then(|s| s.balance.as_ref()).is_some_and(|b| b.micros <= 0);
-        let inference = self.keys.contains(oyenza::SECRET) && !spent && !matches!(oy.trouble, Some(Trouble::Refused | Trouble::Disabled));
         let offset_min = poni_core::oyenza::offset_minutes(&crate::clock::local_now(), crate::clock::unix_now());
-        AlertCfg { near: pace::near(self.watch.near_pct), offset_min, use_24h: self.watch.use_24h, inference, ..AlertCfg::default() }
+        AlertCfg { near: pace::near(self.watch.near_pct), offset_min, use_24h: self.watch.use_24h, ..AlertCfg::default() }
     }
 
     /// One service: what it asks for read, its requests made, what it found
@@ -451,10 +425,6 @@ impl Worker {
                 svc.trouble = None;
                 let alerts = svc.memory.changes(&show, now, &self.cfg);
                 self.note(i, "numbers in");
-                if id == ProviderId::Oyenza && self.pending.is_none() {
-                    let account = show.account.clone().unwrap_or_else(|| self.inference_account());
-                    self.set_link(InferenceLink::On { account });
-                }
                 self.send(UsageEvent::Reading { id, outcome: Ok(show), at: now });
                 if self.watch.notices {
                     alerts
@@ -472,10 +442,6 @@ impl Worker {
                     svc.memory = Memory::default();
                 }
                 svc.trouble = Some(t.clone());
-                if id == ProviderId::Oyenza && t == Trouble::NeedsKey && matches!(self.link, InferenceLink::On { .. }) {
-                    // Its key went (or no longer unseals): not connected.
-                    self.set_link(InferenceLink::Off);
-                }
                 self.note(i, &trouble_words(&t));
                 self.send(UsageEvent::Reading { id, outcome: Err(t), at: now });
                 Vec::new()
@@ -512,9 +478,6 @@ impl Worker {
             }
             UsageCmd::SetKey { secret, key } => self.set_key(secret, &key),
             UsageCmd::ClearKey(secret) => self.clear_key(secret),
-            UsageCmd::Connect => self.connect(),
-            UsageCmd::CancelConnect => self.cancel_connect(),
-            UsageCmd::Disconnect => self.disconnect(),
             // The app keeps these in its settings; the watch brings them.
             UsageCmd::Hide(_) | UsageCmd::Show(_) => {}
         }
@@ -549,17 +512,13 @@ impl Worker {
         self.reread(name);
     }
 
-    /// Forget a typed key (or inference.oyenza.com's), say so, and read its
+    /// Forget a typed key, say so, and read its
     /// services at once.
     fn clear_key(&mut self, name: &'static str) {
         if !self.names.contains(&name) {
             return;
         }
         self.drop_key(name);
-        if name == oyenza::SECRET {
-            self.pending = None;
-            self.set_link(InferenceLink::Off);
-        }
         self.reread(name);
     }
 
@@ -595,139 +554,6 @@ impl Worker {
         }
         self.say(alerts);
     }
-
-    // ------------------------------------------------------------ inference.oyenza.com
-
-    /// The server to ask (a test build's own through `PONI_INFERENCE_URL`).
-    fn base(&self) -> String {
-        oyenza::base(self.dirs.var(oyenza::URL_VAR))
-    }
-
-    /// The account the inference card names, masked, as last read.
-    fn inference_account(&self) -> String {
-        match &self.link {
-            InferenceLink::On { account } => account.clone(),
-            _ => self.svcs[at(ProviderId::Oyenza)].kept.as_ref().and_then(|s| s.account.clone()).unwrap_or_default(),
-        }
-    }
-
-    fn set_link(&mut self, link: InferenceLink) {
-        if self.link != link {
-            self.link = link.clone();
-            self.send(UsageEvent::Link(link));
-        }
-    }
-
-    /// One request outside a service's refresh (connecting), under the same
-    /// rules.
-    fn send_one(&mut self, req: &Request) -> Result<Reply, NetFail> {
-        if pace::sendable(req) {
-            fetch(&mut self.client, req)
-        } else {
-            Err(NetFail::Other("not sent".into()))
-        }
-    }
-
-    /// Ask inference.oyenza.com for a code to show. A key that stopped
-    /// working is replaced once the new code is approved.
-    fn connect(&mut self) {
-        if self.pending.is_some() {
-            return;
-        }
-        self.set_link(InferenceLink::Starting);
-        let base = self.base();
-        let req = oyenza::start_request(&base, &computer_name(), self.dirs.os, env!("CARGO_PKG_VERSION"));
-        let answer = self.send_one(&req);
-        match oyenza::started(&answer, &base, crate::clock::unix_now()) {
-            Ok(p) => {
-                crate::pinfo!("usage: oyenza: showing a code to connect");
-                self.set_link(InferenceLink::Code { code: p.code.clone(), url: p.url.clone(), expires_at: p.expires_at });
-                self.pending = Some(p);
-            }
-            Err(why) => self.connect_failed(why),
-        }
-    }
-
-    /// The code on screen, asked about when its time comes: approved (the
-    /// key is kept and the card read), refused or run out.
-    fn ask_about_code(&mut self) {
-        match self.pending.as_ref().map(|p| p.wait_s(crate::clock::unix_now())) {
-            Some(None) => return self.connect_failed(oyenza::EXPIRED),
-            Some(Some(0)) => {}
-            _ => return,
-        }
-        let base = self.base();
-        let Some(req) = self.pending.as_ref().map(|p| p.ask(&base)) else { return };
-        let answer = self.send_one(&req);
-        let Some(p) = self.pending.as_mut() else { return };
-        match p.heard(&answer, crate::clock::unix_now()) {
-            oyenza::Poll::Wait => {}
-            oyenza::Poll::Failed(why) => self.connect_failed(why),
-            oyenza::Poll::Approved { key, account } => {
-                self.pending = None;
-                match crate::services::secret::save(&crate::paths::usage_key_path(oyenza::SECRET), key.as_str()) {
-                    Ok(()) => {
-                        crate::pinfo!("usage: oyenza: connected");
-                        self.keys.insert(oyenza::SECRET);
-                        self.send(UsageEvent::Keys(self.keys.clone()));
-                        self.set_link(InferenceLink::On { account });
-                        self.reread(oyenza::SECRET);
-                    }
-                    Err(e) => {
-                        crate::pwarn!("usage: oyenza: couldn't keep the key ({e})");
-                        self.set_link(InferenceLink::Failed(oyenza::OTHER.into()));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Connecting stopped without a key: one of `oyenza::{EXPIRED, DENIED, SOON,
-    /// OFFLINE, BUSY, OTHER}`, for the card's `connect_failure_text`.
-    fn connect_failed(&mut self, why: &'static str) {
-        self.pending = None;
-        crate::pinfo!("usage: oyenza: not connected ({why})");
-        self.set_link(InferenceLink::Failed(why.into()));
-    }
-
-    fn cancel_connect(&mut self) {
-        if self.pending.take().is_some() {
-            crate::pinfo!("usage: oyenza: connecting cancelled");
-        }
-        let link = if self.keys.contains(oyenza::SECRET) { InferenceLink::On { account: self.inference_account() } } else { InferenceLink::Off };
-        self.set_link(link);
-    }
-
-    /// Tell inference.oyenza.com to forget this computer's key, then forget
-    /// it here, reached or not. When the server couldn't be told, the key
-    /// still works there until it is removed under Connected apps, and the
-    /// card says so (`oyenza::UNTOLD`) instead of looking cleanly
-    /// disconnected.
-    fn disconnect(&mut self) {
-        self.pending = None;
-        let told = match load_key(oyenza::SECRET).filter(|k| oyenza::key_ok(k.trim())) {
-            Some(key) => {
-                let req = oyenza::disconnect_request(&self.base(), key.trim());
-                oyenza::disconnected(&self.send_one(&req))
-            }
-            // Nothing to tell.
-            None => true,
-        };
-        self.drop_key(oyenza::SECRET);
-        if told {
-            crate::pinfo!("usage: oyenza: disconnected");
-            self.set_link(InferenceLink::Off);
-        } else {
-            crate::pwarn!("usage: oyenza: Oyenza Inference couldn't be told; the key is gone from this computer");
-            self.set_link(InferenceLink::Failed(oyenza::UNTOLD.into()));
-        }
-        self.reread(oyenza::SECRET);
-    }
-}
-
-/// A service's place in `ProviderId::ALL`, and so in the worker's list.
-fn at(id: ProviderId) -> usize {
-    ProviderId::ALL.iter().position(|p| *p == id).unwrap_or(0)
 }
 
 /// What one want gave: files (whole, the newest of a folder, a piece) as
@@ -743,7 +569,7 @@ fn read(w: &Want, names: &[&'static str]) -> Got {
     }
 }
 
-/// A typed key (or inference.oyenza.com's), unsealed.
+/// A typed key, unsealed.
 fn load_key(name: &str) -> Option<String> {
     crate::services::secret::load(&crate::paths::usage_key_path(name))
 }
@@ -809,18 +635,6 @@ fn dirs() -> Dirs {
     Dirs { os, home, config, local, env }
 }
 
-/// What the inference dashboard lists this computer as: the PC's name, or
-/// the Mac's as System Settings › General › About shows it.
-#[cfg(not(target_os = "macos"))]
-fn computer_name() -> String {
-    std::env::var("COMPUTERNAME").unwrap_or_default()
-}
-
-#[cfg(target_os = "macos")]
-fn computer_name() -> String {
-    crate::services::netinfo::computer_name().unwrap_or_default()
-}
-
 /// One keychain item, through the Mac's reader (`services::keychain`), which
 /// keeps macOS's prompt in hand itself: at most once per opening of the tab,
 /// never from the background, a Deny kept until Refresh.
@@ -838,6 +652,11 @@ fn keychain_item(_service: &str, _account: Option<&str>) -> Got {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    /// A service's place in `ProviderId::ALL`, and so in the worker's list.
+    fn at(id: ProviderId) -> usize {
+        ProviderId::ALL.iter().position(|p| *p == id).unwrap_or(0)
+    }
     use crate::events::SendHwnd;
     use studio_usage::{Money, Source, Window, WindowKind};
     use std::sync::mpsc::{channel, Receiver};
@@ -944,33 +763,6 @@ mod tests {
         assert!(heard(&mut off, ProviderId::Codex, Reach::Online, ran(Ok(codex(Source::Online, NOW + 120, 0.85)), 1)).is_empty());
         off.watch.notices = true;
         assert!(heard(&mut off, ProviderId::Codex, Reach::Online, ran(Ok(codex(Source::Online, NOW + 240, 0.86)), 1)).is_empty());
-    }
-
-    #[test]
-    fn the_inference_card_names_its_account() {
-        let (mut w, rx) = worker();
-        let mut s = Snapshot::new(ProviderId::Oyenza, NOW, Source::Online);
-        s.account = Some("a•••@example.com".into());
-        s.balance = Some(Money::usd(4.2));
-        heard(&mut w, ProviderId::Oyenza, Reach::Online, ran(Ok(s.clone()), 1));
-        let evs = told(&rx);
-        assert!(evs.contains(&UsageEvent::Link(InferenceLink::On { account: "a•••@example.com".into() })), "{evs:?}");
-        // A summary without one keeps the name it had.
-        s.account = None;
-        heard(&mut w, ProviderId::Oyenza, Reach::Online, ran(Ok(s), 1));
-        assert!(!told(&rx).iter().any(|e| matches!(e, UsageEvent::Link(_))));
-        assert_eq!(w.link, InferenceLink::On { account: "a•••@example.com".into() });
-        // A refused key keeps the link (the card says "Connect again"); a key
-        // that's gone ends it.
-        heard(&mut w, ProviderId::Oyenza, Reach::Online, ran(Err(Trouble::Refused), 1));
-        assert!(!told(&rx).iter().any(|e| matches!(e, UsageEvent::Link(_))));
-        heard(&mut w, ProviderId::Oyenza, Reach::Local, ran(Err(Trouble::NeedsKey), 0));
-        assert!(told(&rx).contains(&UsageEvent::Link(InferenceLink::Off)));
-        // A disconnect the server never heard keeps saying so through the
-        // next look (no key here either way).
-        w.link = InferenceLink::Failed(oyenza::UNTOLD.into());
-        heard(&mut w, ProviderId::Oyenza, Reach::Local, ran(Err(Trouble::NeedsKey), 0));
-        assert_eq!(w.link, InferenceLink::Failed(oyenza::UNTOLD.into()));
     }
 
     #[test]

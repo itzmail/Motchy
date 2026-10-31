@@ -4,11 +4,11 @@
 //!
 //! A card: the service's mark, name, plan and masked account; a row per
 //! limit (its name, when it resets, a bar and how much is used; "in 2 h 10
-//! min" under the pointer); money left and spent; Oyenza Inference's last
-//! days as small bars. Numbers read from the app's own log, or a while ago,
+//! min" under the pointer); money left and spent; the last days as small
+//! bars. Numbers read from the app's own log, or a while ago,
 //! say so ("From Codex's log, 2 h ago"). A trouble says what's wrong in
-//! plain words with the one button that fixes it (Add key, Connect, Try
-//! again), and a plan that ran out points to Oyenza Inference. A service
+//! plain words with the one button that fixes it (Add key, Try
+//! again). A service
 //! that isn't on this computer (or has no key) has no card unless the
 //! person added it, and "not asked online yet" is never a trouble.
 //!
@@ -21,8 +21,7 @@
 //! Above the cards: "Tell me before I run out" (the heads-up notices),
 //! when the numbers were read, Refresh, and Services, the list where each
 //! service is shown or hidden, a key is typed (masked) for the services
-//! that take one, and Oyenza Inference connects with a code approved in its
-//! dashboard. All of it goes out as `Command`s: the page never calls the
+//! that take one. All of it goes out as `Command`s: the page never calls the
 //! worker. The page is as tall as the System page and scrolls inside, so
 //! the window never grows for it, and nothing on it moves by itself.
 
@@ -30,11 +29,11 @@ use crate::commands::{Command, UsageCmd};
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::pages::PageKind;
-use crate::state::{AppState, InferenceLink, Reading};
+use crate::state::{AppState, Reading};
 use crate::ui::{wid, wid_n, CursorKind, Input, KeyInput, PillStyle, Ui, WidgetId, PILL_GAP, PILL_SMALL};
 use poni_core::datetime::{civil_from_days, fmt_clock, fmt_date_short, LocalDateTime, MONTH_SHORT, WEEKDAY_SHORT};
 use poni_core::geom::{palette, Color, Point, Rect};
-use studio_usage::{self as usage, oyenza, DayUse, KeyAsk, Money, ProviderId, Snapshot, Source, Spend, Trouble, Window};
+use studio_usage::{self as usage, DayUse, KeyAsk, Money, ProviderId, Snapshot, Source, Spend, Trouble, Window};
 
 /// The System page's height: the window never grows for this page, and the
 /// cards scroll inside it.
@@ -63,7 +62,6 @@ const SPENDS_H: f32 = 34.0;
 const LINE_H: f32 = 18.0;
 const NOTE_H: f32 = 16.0;
 const DAYS_H: f32 = 26.0;
-const CODE_BOX_H: f32 = 48.0;
 /// The Services list: its privacy line, a row per service, the key field
 /// under the row it's open for.
 const INTRO_GAP: f32 = 4.0;
@@ -81,12 +79,10 @@ const FADE_H: f32 = 14.0;
 /// Numbers older than this say how old they are (they refresh every couple
 /// of minutes while the tab is open).
 const OLD_S: i64 = 10 * 60;
-/// The longest key the field takes (Oyenza's own keys stop at 256).
+/// The longest key the field takes.
 const KEY_MAX: usize = 256;
 /// A page drawn again after this long starts over (as Today does).
 const STALE_S: f64 = 1.0;
-/// Oyenza's colour, as on the Oyenza page.
-const OYENZA: Color = palette::ORANGE;
 const CHECKING: &str = "Checking…";
 
 pub fn height(_st: &AppState) -> f32 {
@@ -247,14 +243,14 @@ fn top(ui: &mut Ui, st: &mut AppState, r: Rect) {
 // ---------------------------------------------------------------- what shows
 
 /// The service has a card: not hidden, and added by the person, being
-/// connected (Oyenza Inference), or found on this computer or by its key.
+/// or found on this computer or by its key.
 pub fn shown(st: &AppState, id: ProviderId) -> bool {
     let u = &st.settings.usage;
     let has = |list: &[String]| list.iter().any(|k| k == id.key());
     if has(&u.hidden) {
         return false;
     }
-    if has(&u.added) || (id == ProviderId::Oyenza && st.usage.inference != InferenceLink::Off) {
+    if has(&u.added) {
         return true;
     }
     match st.usage.readings.get(&id) {
@@ -266,18 +262,12 @@ pub fn shown(st: &AppState, id: ProviderId) -> bool {
 
 /// The numbers a card shows: the last good ones, unless the latest refresh
 /// says they're gone (the app or the key went, the account was switched
-/// off, or this computer was disconnected from Oyenza Inference).
-fn numbers(id: ProviderId, r: &Reading) -> Option<&Snapshot> {
+/// off).
+fn numbers(r: &Reading) -> Option<&Snapshot> {
     match r.trouble {
         Some(Trouble::NotFound | Trouble::NeedsKey | Trouble::Disabled) => None,
-        Some(Trouble::Refused) if id == ProviderId::Oyenza => None,
         _ => r.snapshot.as_ref(),
     }
-}
-
-/// Oyenza Inference is connected (a key is kept, or the code was just approved).
-fn connected(st: &AppState) -> bool {
-    matches!(st.usage.inference, InferenceLink::On { .. }) || st.usage.keys.contains(oyenza::SECRET)
 }
 
 /// The service's mark.
@@ -307,12 +297,8 @@ enum Part {
     Warn(String, Option<Act>),
     /// No numbers: why, and the one thing that fixes it.
     Trouble { title: String, line: String, act: Option<Act> },
-    /// "Checking…", "Getting a code…".
+    /// "Checking…".
     Quiet(String),
-    /// Oyenza Inference's connect code, waiting for its approval.
-    Code { code: String, url: String, expires_at: i64 },
-    /// A plan ran out: Oyenza Inference carries on.
-    Nudge,
 }
 
 /// A card's or a row's button.
@@ -327,10 +313,6 @@ enum Does {
     Refresh,
     /// Open this service's key field in the Services list.
     Key,
-    /// Connect Oyenza Inference (again).
-    Connect,
-    CancelConnect,
-    Disconnect,
     Url(String),
 }
 
@@ -349,21 +331,10 @@ struct Card {
 
 /// What the card of `id` says, line by line.
 fn parts(st: &AppState, id: ProviderId) -> Vec<Part> {
-    if id == ProviderId::Oyenza {
-        match &st.usage.inference {
-            InferenceLink::Starting => return vec![Part::Quiet(oyenza::STARTING.into())],
-            InferenceLink::Code { code, url, expires_at } => return vec![Part::Code { code: code.clone(), url: url.clone(), expires_at: *expires_at }],
-            InferenceLink::Failed(why) => {
-                let (title, line) = oyenza::connect_failure_text(why);
-                return vec![Part::Trouble { title: title.into(), line: line.into(), act: Act::new(oyenza::CONNECT_AGAIN, Does::Connect) }];
-            }
-            InferenceLink::Off | InferenceLink::On { .. } => {}
-        }
-    }
     let Some(r) = st.usage.readings.get(&id) else { return vec![Part::Quiet(CHECKING.into())] };
     // "Not asked online yet" only means the online answer is on its way.
     let trouble = r.trouble.as_ref().filter(|t| **t != Trouble::NeedsOnline);
-    let Some(snap) = numbers(id, r) else {
+    let Some(snap) = numbers(r) else {
         return match trouble {
             Some(t) => {
                 let w = words(id, t);
@@ -402,11 +373,6 @@ fn parts(st: &AppState, id: ProviderId) -> Vec<Part> {
         let w = words(id, t);
         out.push(Part::Warn(w.short, w.act));
     }
-    // A plan that ran out points to Oyenza Inference, unless the person hid it.
-    let out_now = snap.windows.iter().any(|w| w.at(now).used >= 1.0);
-    if out_now && id != ProviderId::Oyenza && !st.settings.usage.hidden.iter().any(|k| k == ProviderId::Oyenza.key()) {
-        out.push(Part::Nudge);
-    }
     out
 }
 
@@ -426,22 +392,6 @@ fn words(id: ProviderId, t: &Trouble) -> Words {
     let key = usage::provider(id).takes_key().is_some();
     let w = |title: String, line: String, short: String, act: Option<Act>| Words { title, line, short, act };
     let again = || Act::new("Try again", Does::Refresh);
-    if id == ProviderId::Oyenza {
-        match t {
-            Trouble::NeedsKey | Trouble::NotFound => {
-                return w("Not connected".into(), oyenza::CONNECT_LINE.into(), "Not connected".into(), Act::new(oyenza::CONNECT, Does::Connect))
-            }
-            Trouble::Refused => {
-                let (title, line) = oyenza::refused_text(oyenza::Refusal::Key);
-                return w(title.into(), line.into(), title.into(), Act::new(oyenza::CONNECT_AGAIN, Does::Connect));
-            }
-            Trouble::Disabled => {
-                let (title, line) = oyenza::refused_text(oyenza::Refusal::Disabled);
-                return w(title.into(), line.into(), title.into(), None);
-            }
-            _ => {}
-        }
-    }
     match t {
         Trouble::NotFound => w("Not on this computer".into(), format!("Sign in to {name} here and its plan shows up"), "Not on this computer".into(), None),
         Trouble::SignedOut => w("Not signed in".into(), format!("Sign in to {name} on this computer"), format!("Signed out of {name}"), None),
@@ -480,7 +430,6 @@ fn usage_page(id: ProviderId) -> &'static str {
         ProviderId::Zai => "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
         ProviderId::MiniMax => "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3",
         ProviderId::OpenRouter => "https://openrouter.ai/activity",
-        ProviderId::Oyenza => oyenza::BASE,
     }
 }
 
@@ -500,14 +449,9 @@ fn part_h(ui: &mut Ui, p: &Part, w: f32) -> f32 {
         Part::Days(_) => DAYS_H,
         Part::Note(_) => NOTE_H,
         Part::Warn(..) => NOTE_H + 4.0,
-        Part::Nudge => LINE_H + 4.0,
         Part::Trouble { line, act, .. } => {
             let (_, lh) = ui.c.measure(line, &trouble_line(), w);
             19.0 + lh.ceil() + if act.is_some() { 8.0 + PILL_SMALL } else { 2.0 }
-        }
-        Part::Code { code, url, .. } => {
-            let (_, ah) = ui.c.measure(&oyenza::approve_text(code, url), &trouble_line(), w);
-            ah.ceil() + 4.0 + CODE_BOX_H + 8.0 + PILL_SMALL
         }
     }
 }
@@ -574,10 +518,10 @@ fn cards(ui: &mut Ui, st: &mut AppState, view: Rect, dt: f32, moving: &mut bool)
 
 fn draw_card(ui: &mut Ui, st: &AppState, c: &Card, r: Rect, view: Rect, pill_card: Option<(Rect, f32)>, acts: &mut Vec<(ProviderId, Does)>) {
     super::card::fill_box(ui, pill_card, r, CARD_R, palette::SURFACE);
-    let snap = st.usage.readings.get(&c.id).and_then(|rd| numbers(c.id, rd));
+    let snap = st.usage.readings.get(&c.id).and_then(numbers);
     let x = r.x + PAD_X;
     let w = r.w - 2.0 * PAD_X;
-    head(ui, st, c.id, snap, Rect::new(x, r.y + PAD_Y, w, HEAD_H));
+    head(ui, c.id, snap, Rect::new(x, r.y + PAD_Y, w, HEAD_H));
     let mut y = r.y + PAD_Y + HEAD_H + HEAD_GAP;
     for (i, p) in c.parts.iter().enumerate() {
         let h = part_h(ui, p, w);
@@ -593,7 +537,7 @@ fn draw_card(ui: &mut Ui, st: &AppState, c: &Card, r: Rect, view: Rect, pill_car
 
 /// Mark, name and plan on the left, the masked account on the right while
 /// there's room for it.
-fn head(ui: &mut Ui, st: &AppState, id: ProviderId, snap: Option<&Snapshot>, r: Rect) {
+fn head(ui: &mut Ui, id: ProviderId, snap: Option<&Snapshot>, r: Rect) {
     mark(ui, id, Rect::new(r.x, r.center().y - MARK / 2.0, MARK, MARK), palette::TEXT);
     let x = r.x + MARK + 7.0;
     let name_st = TextStyle::body().weight(Weight::Semibold);
@@ -610,11 +554,7 @@ fn head(ui: &mut Ui, st: &AppState, id: ProviderId, snap: Option<&Snapshot>, r: 
             used = px + pw;
         }
     }
-    let account = match (snap.and_then(|s| s.account.as_deref()), &st.usage.inference) {
-        (Some(a), _) => Some(a),
-        (None, InferenceLink::On { account }) if id == ProviderId::Oyenza => Some(account.as_str()),
-        _ => None,
-    };
+    let account = snap.and_then(|s| s.account.as_deref());
     // Whole or not at all: a cut email reads as broken.
     if let Some(a) = account.filter(|a| !a.trim().is_empty()) {
         let aw = ui.c.measure(a, &dim, 1000.0).0.ceil();
@@ -692,18 +632,6 @@ fn draw_part(ui: &mut Ui, st: &AppState, p: &Part, r: Rect, view: Rect, n: u64) 
             ui.c.text(text, Rect::new(line.x, line.y, (end - line.x).max(0.0), line.h), &TextStyle::footnote().color(palette::ORANGE));
             out
         }
-        Part::Nudge => {
-            let line = Rect::new(r.x, r.y + 3.0, r.w, 16.0);
-            let does = if connected(st) { Does::Url(oyenza::BASE.into()) } else { Does::Connect };
-            let label_st = TextStyle::footnote().weight(Weight::Semibold);
-            let lw = ui.c.measure(oyenza::NUDGE, &label_st, r.w).0.ceil().min(line.w - 18.0);
-            let hit = Rect::new(line.x - 4.0, line.y - 3.0, lw + 26.0, line.h + 6.0);
-            let resp = if inside(view, hit) { ui.button(wid_n("usage.nudge", n), hit) } else { Default::default() };
-            let color = if resp.hovered { palette::TEXT } else { OYENZA };
-            ui.c.text(oyenza::NUDGE, Rect::new(line.x, line.y, lw + 1.0, line.h), &label_st.color(color));
-            ui.c.icon(Icon::Open, Rect::new(line.x + lw + 5.0, line.center().y - 6.0, 12.0, 12.0), color);
-            resp.clicked.then_some(does)
-        }
         Part::Trouble { title, line, act } => {
             ui.c.text(title, Rect::new(r.x, r.y, r.w, 17.0), &TextStyle::body());
             let (_, lh) = ui.c.measure(line, &trouble_line(), r.w);
@@ -711,7 +639,6 @@ fn draw_part(ui: &mut Ui, st: &AppState, p: &Part, r: Rect, view: Rect, n: u64) 
             let a = act.as_ref()?;
             let style = match a.does {
                 Does::Refresh | Does::Url(_) => PillStyle::Utility,
-                Does::Connect => PillStyle::Primary(OYENZA),
                 _ => PillStyle::Primary(st.accent),
             };
             let icon = matches!(a.does, Does::Url(_)).then_some(Icon::Open);
@@ -719,7 +646,6 @@ fn draw_part(ui: &mut Ui, st: &AppState, p: &Part, r: Rect, view: Rect, n: u64) 
             let pill = Rect::new(r.x, r.y + 19.0 + lh.ceil() + 8.0, pw, PILL_SMALL);
             pill_in(ui, view, wid_n("usage.fix", n), pill, &a.label, icon, style).then(|| a.does.clone())
         }
-        Part::Code { code, url, expires_at } => connect_code(ui, st, r, view, code, url, *expires_at),
     }
 }
 
@@ -787,44 +713,9 @@ fn day_bars(ui: &mut Ui, days: &[DayUse], r: Rect) {
     }
 }
 
-/// Oyenza Inference's code on its card: where to approve it, the code, the
-/// approve page, Cancel, and until when it works.
-fn connect_code(ui: &mut Ui, st: &AppState, r: Rect, view: Rect, code: &str, url: &str, expires_at: i64) -> Option<Does> {
-    // "Approve KPJX-TMNQ on inference.oyenza.com", on two lines on a narrow card.
-    let approve = oyenza::approve_text(code, url);
-    let (_, ah) = ui.c.measure(&approve, &trouble_line(), r.w);
-    ui.c.text(&approve, Rect::new(r.x, r.y, r.w, ah.ceil() + 1.0), &trouble_line());
-    let code_r = Rect::new(r.x, r.y + ah.ceil() + 4.0, r.w, CODE_BOX_H);
-    ui.c.fill_rrect(code_r, 10.0, Color::white(0.07));
-    ui.c.text(code, code_r, &TextStyle::display().tabular().center());
-    let y = code_r.bottom() + 8.0;
-    let cancel_w = ui.pill_width("Cancel", false, true);
-    let mut open_label = format!("Open {}", host(url));
-    if ui.pill_width(&open_label, true, true) + PILL_GAP + cancel_w > r.w {
-        open_label = "Open".into();
-    }
-    let open_w = ui.pill_width(&open_label, true, true);
-    let open = Rect::new(r.x, y, open_w, PILL_SMALL);
-    let mut out = None;
-    if pill_in(ui, view, wid("usage.code-open"), open, &open_label, Some(Icon::Open), PillStyle::Primary(OYENZA)) {
-        out = Some(Does::Url(url.to_string()));
-    }
-    let cancel = Rect::new(open.right() + PILL_GAP, y, cancel_w, PILL_SMALL);
-    if pill_in(ui, view, wid("usage.code-cancel"), cancel, "Cancel", None, PillStyle::Utility) {
-        out = Some(Does::CancelConnect);
-    }
-    let until = format!("Works until {}", clock_at(st, expires_at));
-    let x = cancel.right() + 10.0;
-    let dim = TextStyle::footnote().color(palette::TEXT_DIM).right();
-    if ui.c.measure(&until, &dim, 400.0).0 <= r.right() - x {
-        ui.c.text(&until, Rect::new(x, y, r.right() - x, PILL_SMALL), &dim);
-    }
-    out
-}
-
 // ---------------------------------------------------------------- nothing found
 
-/// No card to show: what the tab looks for, Add a key, and Oyenza Inference.
+/// No card to show: what the tab looks for, and Add a key.
 fn empty(ui: &mut Ui, st: &mut AppState, r: Rect) {
     const BADGE: f32 = 52.0;
     let looking = st.usage.readings.is_empty();
@@ -833,7 +724,7 @@ fn empty(ui: &mut Ui, st: &mut AppState, r: Rect) {
     // (OpenCode Go and Kimi Code too, though they also take a key); a key:
     // every service that takes one. The worker's own rule decides which is which.
     let dirs = usage::Dirs::sample(if cfg!(target_os = "macos") { usage::Os::Mac } else { usage::Os::Windows });
-    let ids = ProviderId::ALL.into_iter().filter(|id| *id != ProviderId::Oyenza);
+    let ids = ProviderId::ALL.into_iter();
     let found: Vec<ProviderId> = ids.clone().filter(|id| !usage::pace::typed_key_only(&usage::provider(*id).wants(&dirs), false)).collect();
     let keyed: Vec<ProviderId> = ids.filter(|id| usage::provider(*id).takes_key().is_some()).collect();
     let mut body = format!("Studio looks for {} on this computer.", names(&found, "and"));
@@ -867,12 +758,6 @@ fn empty(ui: &mut Ui, st: &mut AppState, r: Rect) {
             open_key(&mut st.ui.usage, id);
         }
     }
-    let label = "Connect Oyenza Inference";
-    let cw = ui.pill_width(label, false, true);
-    let connect = Rect::new(add.right() + PILL_GAP, y, cw, PILL_SMALL);
-    if connect.right() <= r.right() + 0.5 && ui.pill(wid("usage.empty-connect"), connect, label, None, PillStyle::Utility).clicked {
-        act(ui, st, ProviderId::Oyenza, Does::Connect);
-    }
 }
 
 /// "Codex, Claude Code and Gemini CLI" (or "... or ...").
@@ -887,9 +772,9 @@ fn names(ids: &[ProviderId], last_word: &str) -> String {
 // ---------------------------------------------------------------- the Services list
 
 /// Every service, in order: shown or hidden, its key (typed into a masked
-/// field that opens under its row), and Oyenza Inference's connection.
+/// field that opens under its row).
 fn list(ui: &mut Ui, st: &mut AppState, view: Rect, dt: f32, moving: &mut bool) {
-    let intro = "Each sign-in is read on this computer and goes only to its own service. Oyenza never sees your other plans.";
+    let intro = "Each sign-in is read on this computer and goes only to its own service.";
     let intro_st = TextStyle::caption().color(palette::TEXT_DIM).wrap().top();
     let intro_h = ui.c.measure(intro, &intro_st, view.w).1.ceil();
     let editing = st.ui.usage.editing.filter(|id| usage::provider(*id).takes_key().is_some());
@@ -966,42 +851,20 @@ fn row(ui: &mut Ui, st: &mut AppState, id: ProviderId, r: Rect, view: Rect) -> O
         right = pill.x - PILL_GAP;
     }
 
-    // Between them: the code while one waits, else what's known.
+    // Between them: what's known.
     let sx = r.x + NAME_X + NAME_W;
     let status_r = Rect::new(sx, r.y, (right - 4.0 - sx).max(0.0), r.h);
-    match &st.usage.inference {
-        InferenceLink::Code { code, expires_at, .. } if id == ProviderId::Oyenza => {
-            let code_st = TextStyle::headline().weight(Weight::Semibold).tabular();
-            let cw = ui.c.measure(code, &code_st, status_r.w).0.ceil().min(status_r.w);
-            ui.c.text(code, Rect::new(status_r.x, r.y, cw + 1.0, r.h), &code_st);
-            let until = format!("until {}", clock_at(st, *expires_at));
-            let ux = status_r.x + cw + 8.0;
-            ui.c.text(&until, Rect::new(ux, r.y, (status_r.right() - ux).max(0.0), r.h), &TextStyle::footnote().color(palette::TEXT_DIM));
-        }
-        _ => {
-            let (text, color) = status(st, id);
-            ui.c.text(&text, status_r, &TextStyle::footnote().color(color));
-        }
-    }
+    let (text, color) = status(st, id);
+    ui.c.text(&text, status_r, &TextStyle::footnote().color(color));
     out
 }
 
 /// A row's buttons, left to right: a key's (Add key, Change key, Cancel
-/// while its field is open; none for a service found without one), or
-/// Oyenza Inference's connection.
+/// while its field is open; none for a service found without one).
 fn row_buttons(st: &AppState, id: ProviderId) -> Vec<(String, Option<Icon>, PillStyle, Does)> {
     let b = |label: &str, icon: Option<Icon>, style: PillStyle, does: Does| (label.to_string(), icon, style, does);
-    if id == ProviderId::Oyenza {
-        return match &st.usage.inference {
-            InferenceLink::Starting => vec![b("Cancel", None, PillStyle::Utility, Does::CancelConnect)],
-            InferenceLink::Code { url, .. } => vec![b("Open", Some(Icon::Open), PillStyle::Primary(OYENZA), Does::Url(url.clone())), b("Cancel", None, PillStyle::Utility, Does::CancelConnect)],
-            InferenceLink::Failed(_) => vec![b(oyenza::CONNECT_AGAIN, None, PillStyle::Primary(OYENZA), Does::Connect)],
-            _ if connected(st) => vec![b(oyenza::DISCONNECT, None, PillStyle::Utility, Does::Disconnect)],
-            _ => vec![b(oyenza::CONNECT, None, PillStyle::Primary(OYENZA), Does::Connect)],
-        };
-    }
     let Some(ask) = usage::provider(id).takes_key() else { return Vec::new() };
-    let found = st.usage.readings.get(&id).is_some_and(|r| numbers(id, r).is_some());
+    let found = st.usage.readings.get(&id).is_some_and(|r| numbers(r).is_some());
     if st.ui.usage.editing == Some(id) {
         vec![b("Cancel", None, PillStyle::Utility, Does::Key)]
     } else if st.usage.keys.contains(ask.secret) {
@@ -1016,22 +879,9 @@ fn row_buttons(st: &AppState, id: ProviderId) -> Vec<(String, Option<Icon>, Pill
 /// What the Services list says of a service beside its name.
 fn status(st: &AppState, id: ProviderId) -> (String, Color) {
     let (dim, warn) = (palette::TEXT_DIM, palette::ORANGE);
-    if id == ProviderId::Oyenza {
-        return match &st.usage.inference {
-            InferenceLink::Starting => (oyenza::STARTING.into(), dim),
-            InferenceLink::Code { code, .. } => (code.clone(), palette::TEXT),
-            InferenceLink::Failed(why) => (oyenza::connect_failure_text(why).0.into(), warn),
-            InferenceLink::On { account } => (oyenza::connected_text(account), dim),
-            InferenceLink::Off => match st.usage.readings.get(&id).and_then(|r| r.trouble.clone()) {
-                Some(t @ (Trouble::Refused | Trouble::Disabled)) => (words(id, &t).short, warn),
-                _ if connected(st) => ("Connected".into(), dim),
-                _ => ("Not connected".into(), dim),
-            },
-        };
-    }
     let kept = usage::provider(id).takes_key().is_some_and(|k| st.usage.keys.contains(k.secret));
     match st.usage.readings.get(&id) {
-        Some(r) => match (numbers(id, r), r.trouble.as_ref().filter(|t| **t != Trouble::NeedsOnline)) {
+        Some(r) => match (numbers(r), r.trouble.as_ref().filter(|t| **t != Trouble::NeedsOnline)) {
             (Some(s), None) => {
                 let found = [s.plan.as_deref(), s.account.as_deref()].into_iter().flatten().filter(|t| !t.trim().is_empty()).collect::<Vec<_>>().join(" · ");
                 (if found.is_empty() { "Found".into() } else { found }, dim)
@@ -1172,24 +1022,6 @@ fn act(ui: &mut Ui, st: &mut AppState, id: ProviderId, does: Does) {
                 open_key(s, id);
             }
         }
-        Does::Connect => {
-            // Its card shows the code: bring it into view, shown even if it was hidden.
-            st.cmd(Command::Usage(UsageCmd::Connect));
-            if st.settings.usage.hidden.iter().any(|k| k == ProviderId::Oyenza.key()) {
-                st.cmd(Command::Usage(UsageCmd::Show(ProviderId::Oyenza)));
-            }
-            if matches!(st.usage.inference, InferenceLink::Off | InferenceLink::Failed(_)) {
-                st.usage.inference = InferenceLink::Starting;
-            }
-            if !st.ui.usage.services {
-                st.ui.usage.reveal = Some(ProviderId::Oyenza);
-            }
-        }
-        Does::CancelConnect => {
-            st.cmd(Command::Usage(UsageCmd::CancelConnect));
-            st.usage.inference = InferenceLink::Off;
-        }
-        Does::Disconnect => st.cmd(Command::Usage(UsageCmd::Disconnect)),
         Does::Url(u) => st.cmd(Command::OpenUrl(u)),
     }
 }
@@ -1416,21 +1248,16 @@ fn soon(retry_after_s: Option<u64>) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Picture {
     /// Codex, Claude Code (past the notice line on its 5-hour limit),
-    /// OpenCode Go and Oyenza Inference connected; notices on.
+    /// and OpenCode Go; notices on.
     Plans,
     /// A trouble mix: Codex's sign-in expired (numbers from its log), Claude
-    /// Code used up (pointing to Oyenza Inference), Gemini CLI offline,
+    /// Code used up, Gemini CLI offline,
     /// GitHub Copilot's account switched off, an OpenRouter key refused.
     Troubles,
     /// Nothing found: what the tab looks for, Add a key.
     Empty,
     /// The first opening, before anything is read.
     Looking,
-    /// Connecting Oyenza Inference: the code on its card, beside Codex.
-    Connect,
-    /// Oyenza Inference connected: its balance, spend and last 14 days,
-    /// beside Codex.
-    Inference,
     /// The Services list from its top: the privacy line, each service
     /// shown or hidden.
     Services,
@@ -1440,7 +1267,7 @@ pub enum Picture {
 
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 impl Picture {
-    pub const ALL: [Picture; 8] = [Picture::Plans, Picture::Troubles, Picture::Empty, Picture::Looking, Picture::Connect, Picture::Inference, Picture::Services, Picture::Key];
+    pub const ALL: [Picture; 6] = [Picture::Plans, Picture::Troubles, Picture::Empty, Picture::Looking, Picture::Services, Picture::Key];
 
     /// The picture's file name: "page-ai", "page-ai-troubles", ...
     pub fn name(self) -> &'static str {
@@ -1449,8 +1276,6 @@ impl Picture {
             Picture::Troubles => "page-ai-troubles",
             Picture::Empty => "page-ai-empty",
             Picture::Looking => "page-ai-looking",
-            Picture::Connect => "page-ai-connect",
-            Picture::Inference => "page-ai-inference",
             Picture::Services => "page-ai-services",
             Picture::Key => "page-ai-key",
         }
@@ -1487,24 +1312,6 @@ pub fn picture(st: &mut AppState, shows: Picture, now: f64) {
         s.account = None;
         s
     };
-    let inference = |st: &AppState| {
-        let usd = [0.10, 0.32, 0.0, 0.18, 0.64, 0.41, 0.22, 0.05, 0.38, 0.71, 0.55, 0.12, 0.90, 0.42];
-        let mut s = snap(Oyenza, "Pay as you go", Vec::new());
-        s.balance = Some(Money::usd(18.4));
-        let sum = |d: &[f64]| d.iter().sum::<f64>();
-        s.spend = vec![
-            Spend { label: "Today".into(), money: Money::usd(usd[13]), cap: None },
-            Spend { label: "7 days".into(), money: Money::usd(sum(&usd[7..])), cap: None },
-            Spend { label: "30 days".into(), money: Money::usd(sum(&usd) + 6.3), cap: None },
-        ];
-        s.days = usd
-            .iter()
-            .enumerate()
-            .map(|(i, v)| DayUse { day: st.local.add_days(i as i64 - 13).day_key(), money: Some(Money::usd(*v)), requests: Some((v * 90.0) as u64), tokens: None })
-            .collect();
-        s
-    };
-
     st.usage = crate::state::UsageState::default();
     st.settings.usage = poni_core::settings::UsageSettings::default();
     st.ui.usage = UsageUi::default();
@@ -1518,7 +1325,7 @@ pub fn picture(st: &mut AppState, shows: Picture, now: f64) {
     // Every service answers a refresh: those not on this computer say so.
     if shows != Picture::Looking {
         for id in ProviderId::ALL {
-            let none = if usage::provider(id).takes_key().is_some() || id == Oyenza { Trouble::NeedsKey } else { Trouble::NotFound };
+            let none = if usage::provider(id).takes_key().is_some() { Trouble::NeedsKey } else { Trouble::NotFound };
             put(st, id, Err(none));
         }
     }
@@ -1530,10 +1337,7 @@ pub fn picture(st: &mut AppState, shows: Picture, now: f64) {
     };
     match shows {
         Picture::Plans | Picture::Services | Picture::Key => {
-            let inf = inference(st);
-            readings(st, vec![(Codex, Ok(codex())), (Claude, Ok(claude())), (OpenCode, Ok(opencode())), (Oyenza, Ok(inf))]);
-            st.usage.inference = InferenceLink::On { account: "a•••@example.com".into() };
-            st.usage.keys.insert(oyenza::SECRET);
+            readings(st, vec![(Codex, Ok(codex())), (Claude, Ok(claude())), (OpenCode, Ok(opencode()))]);
             st.settings.usage.notices = shows == Picture::Plans;
         }
         Picture::Troubles => {
@@ -1556,18 +1360,6 @@ pub fn picture(st: &mut AppState, shows: Picture, now: f64) {
         }
         Picture::Empty => {}
         Picture::Looking => st.usage.refreshing = true,
-        Picture::Connect => {
-            readings(st, vec![(Codex, Ok(codex()))]);
-            // A code just asked for: good for ten minutes from now, on a whole minute.
-            let expires_at = (unix + 10 * 60).div_euclid(60) * 60;
-            st.usage.inference = InferenceLink::Code { code: "KPJX-TMNQ".into(), url: format!("{}/app/connect?code=KPJXTMNQ", oyenza::BASE), expires_at };
-        }
-        Picture::Inference => {
-            let inf = inference(st);
-            readings(st, vec![(Codex, Ok(codex())), (Oyenza, Ok(inf))]);
-            st.usage.inference = InferenceLink::On { account: "a•••@example.com".into() };
-            st.usage.keys.insert(oyenza::SECRET);
-        }
     }
     if matches!(shows, Picture::Services | Picture::Key) {
         st.ui.usage.services = true;
@@ -1653,45 +1445,6 @@ mod tests {
     }
 
     #[test]
-    fn a_used_up_plan_points_to_oyenza_inference() {
-        let mut st = state();
-        let mut s = Snapshot::new(ProviderId::Claude, st.unix, Source::Online);
-        s.windows.push(Window::new(usage::WindowKind::Session, "5-hour", 1.0).resets(Some(st.unix + 600)));
-        read(&mut st, ProviderId::Claude, Some(s.clone()), None);
-        assert_eq!(parts(&st, ProviderId::Claude).last(), Some(&Part::Nudge));
-        // Not once the reset has passed, nor when the person hid Oyenza Inference.
-        s.windows[0].resets_at = Some(st.unix - 1);
-        read(&mut st, ProviderId::Claude, Some(s.clone()), None);
-        assert!(!parts(&st, ProviderId::Claude).contains(&Part::Nudge));
-        s.windows[0].resets_at = Some(st.unix + 600);
-        read(&mut st, ProviderId::Claude, Some(s), None);
-        st.settings.usage.hidden.push("oyenza".into());
-        assert!(!parts(&st, ProviderId::Claude).contains(&Part::Nudge));
-    }
-
-    #[test]
-    fn oyenza_inference_follows_its_connection() {
-        let mut st = state();
-        read(&mut st, ProviderId::Oyenza, None, Some(Trouble::NeedsKey));
-        assert!(!shown(&st, ProviderId::Oyenza), "not connected, not added: in the Services list only");
-        st.usage.inference = InferenceLink::Code { code: "KPJX-TMNQ".into(), url: "https://inference.oyenza.com/app/connect?code=KPJXTMNQ".into(), expires_at: st.unix + 600 };
-        assert!(shown(&st, ProviderId::Oyenza));
-        assert!(matches!(&parts(&st, ProviderId::Oyenza)[..], [Part::Code { .. }]));
-        st.usage.inference = InferenceLink::Failed(oyenza::EXPIRED.into());
-        let p = parts(&st, ProviderId::Oyenza);
-        assert!(matches!(&p[..], [Part::Trouble { title, act: Some(Act { does: Does::Connect, .. }), .. }] if title == "Code expired"), "{p:?}");
-        // Disconnected in the dashboard: its old balance goes, Connect again comes.
-        st.usage.inference = InferenceLink::On { account: "a•••@example.com".into() };
-        let mut s = Snapshot::new(ProviderId::Oyenza, st.unix, Source::Online);
-        s.balance = Some(Money::usd(4.2));
-        read(&mut st, ProviderId::Oyenza, Some(s), Some(Trouble::Refused));
-        let p = parts(&st, ProviderId::Oyenza);
-        assert!(matches!(&p[..], [Part::Trouble { title, act: Some(Act { does: Does::Connect, .. }), .. }] if title == "No longer connected"), "{p:?}");
-        read(&mut st, ProviderId::Oyenza, None, Some(Trouble::Disabled));
-        assert!(matches!(&parts(&st, ProviderId::Oyenza)[..], [Part::Trouble { act: None, .. }]));
-    }
-
-    #[test]
     fn every_trouble_has_plain_words() {
         let all = [
             Trouble::NotFound,
@@ -1758,10 +1511,6 @@ mod tests {
         assert_eq!(labels(&st), ["Change key"]);
         st.ui.usage.editing = Some(id);
         assert_eq!(labels(&st), ["Cancel"]);
-        // Oyenza Inference: its connection instead.
-        assert_eq!(row_buttons(&st, ProviderId::Oyenza).into_iter().map(|b| b.0).collect::<Vec<_>>(), [oyenza::CONNECT]);
-        st.usage.inference = InferenceLink::On { account: "a•••@example.com".into() };
-        assert_eq!(row_buttons(&st, ProviderId::Oyenza).into_iter().map(|b| b.0).collect::<Vec<_>>(), [oyenza::DISCONNECT]);
     }
 
     #[test]
@@ -1780,10 +1529,9 @@ mod tests {
             let ids: Vec<ProviderId> = ProviderId::ALL.into_iter().filter(|id| shown(&st, *id)).collect();
             use ProviderId::*;
             let want: &[ProviderId] = match p {
-                Picture::Plans | Picture::Services | Picture::Key => &[Codex, Claude, OpenCode, Oyenza],
+                Picture::Plans | Picture::Services | Picture::Key => &[Codex, Claude, OpenCode],
                 Picture::Troubles => &[Codex, Claude, Gemini, Copilot, OpenRouter],
                 Picture::Empty | Picture::Looking => &[],
-                Picture::Connect | Picture::Inference => &[Codex, Oyenza],
             };
             assert_eq!(ids, want, "{p:?}");
             assert!(st.ui.usage.still, "{p:?} holds still");

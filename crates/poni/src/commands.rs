@@ -68,12 +68,6 @@ pub enum UsageCmd {
     SetKey { secret: &'static str, key: String },
     /// Forget a typed key.
     ClearKey(&'static str),
-    /// Connect inference.oyenza.com: ask for a code to show.
-    Connect,
-    /// Stop waiting for the code's approval.
-    CancelConnect,
-    /// Disconnect inference.oyenza.com (its key stops working there too).
-    Disconnect,
     /// Take a service's card off the tab.
     Hide(ProviderId),
     /// Put it back, even when nothing of it is on this computer (a service
@@ -88,9 +82,6 @@ impl std::fmt::Debug for UsageCmd {
             UsageCmd::Refresh => f.write_str("Refresh"),
             UsageCmd::SetKey { secret, .. } => write!(f, "SetKey({secret})"),
             UsageCmd::ClearKey(secret) => write!(f, "ClearKey({secret})"),
-            UsageCmd::Connect => f.write_str("Connect"),
-            UsageCmd::CancelConnect => f.write_str("CancelConnect"),
-            UsageCmd::Disconnect => f.write_str("Disconnect"),
             UsageCmd::Hide(id) => write!(f, "Hide({})", id.key()),
             UsageCmd::Show(id) => write!(f, "Show({})", id.key()),
         }

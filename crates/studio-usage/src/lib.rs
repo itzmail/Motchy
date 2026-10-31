@@ -1,6 +1,5 @@
 //! AI usage: how much of each AI coding plan a person has left (Codex,
-//! Claude Code, OpenCode Go and the rest), for the AI tab, plus their
-//! inference.oyenza.com balance once they connect it.
+//! Claude Code, OpenCode Go and the rest), for the AI tab.
 //!
 //! Each service is one file here (`codex.rs`, `claude.rs`, ...) behind the
 //! same [`Provider`] contract, and all of it is pure, so every service is
@@ -45,7 +44,6 @@ pub mod kimi;
 pub mod minimax;
 pub mod opencode;
 pub mod openrouter;
-pub mod oyenza;
 pub mod pace;
 pub mod zai;
 
@@ -73,12 +71,10 @@ pub enum ProviderId {
     Zai,
     MiniMax,
     OpenRouter,
-    /// inference.oyenza.com: the person's balance and spend, once connected.
-    Oyenza,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 11] = [
+    pub const ALL: [ProviderId; 10] = [
         ProviderId::Codex,
         ProviderId::Claude,
         ProviderId::OpenCode,
@@ -89,7 +85,6 @@ impl ProviderId {
         ProviderId::Zai,
         ProviderId::MiniMax,
         ProviderId::OpenRouter,
-        ProviderId::Oyenza,
     ];
 
     /// Stable key: settings, the log, fixture folders.
@@ -105,7 +100,6 @@ impl ProviderId {
             ProviderId::Zai => "zai",
             ProviderId::MiniMax => "minimax",
             ProviderId::OpenRouter => "openrouter",
-            ProviderId::Oyenza => "oyenza",
         }
     }
 
@@ -122,7 +116,6 @@ impl ProviderId {
             ProviderId::Zai => "Z.ai GLM",
             ProviderId::MiniMax => "MiniMax",
             ProviderId::OpenRouter => "OpenRouter",
-            ProviderId::Oyenza => "Oyenza Inference",
         }
     }
 
@@ -476,7 +469,7 @@ pub struct KeyAsk {
 }
 
 /// Every service, in [`ProviderId::ALL`] order.
-pub fn all() -> [&'static dyn Provider; 11] {
+pub fn all() -> [&'static dyn Provider; 10] {
     [
         &codex::Codex,
         &claude::Claude,
@@ -488,7 +481,6 @@ pub fn all() -> [&'static dyn Provider; 11] {
         &zai::Zai,
         &minimax::MiniMax,
         &openrouter::OpenRouter,
-        &oyenza::Oyenza,
     ]
 }
 

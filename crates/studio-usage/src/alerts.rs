@@ -25,14 +25,11 @@ pub struct AlertCfg {
     pub offset_min: i32,
     /// "14:20" or "2:20 PM", as the app's clock (`settings.use_24h`).
     pub use_24h: bool,
-    /// Oyenza Inference is connected: a plan that runs out says it can carry
-    /// on there ([`Alert::nudge`]).
-    pub inference: bool,
 }
 
 impl Default for AlertCfg {
     fn default() -> Self {
-        AlertCfg { near: 0.8, floor_usd: 1.0, offset_min: 0, use_24h: true, inference: false }
+        AlertCfg { near: 0.8, floor_usd: 1.0, offset_min: 0, use_24h: true }
     }
 }
 
@@ -69,14 +66,7 @@ pub struct Alert {
     pub title: String,
     /// "Resets 14:20".
     pub subtitle: String,
-    /// One more line when a plan ran out and Oyenza Inference is connected
-    /// ([`AlertCfg::inference`]).
-    pub nudge: Option<String>,
 }
-
-/// Placeholder words until the Oyenza lane writes the real ones.
-/// The Oyenza Inference card's own words for it.
-const NUDGE: &str = super::oyenza::NUDGE;
 
 /// The longest title that keeps "of <window>" on its line: about what
 /// Classic's notice fits at 15 DIP (Pill's is wider), measured on the
@@ -194,14 +184,12 @@ fn step(before: Option<&Snapshot>, after: &Snapshot, now: i64, cfg: &AlertCfg) -
     let from = |t: &Turn| if t.reset { 0 } else { t.was };
     let later = |w: &Window| w.resets_at.unwrap_or(i64::MAX);
     let name = after.provider.name();
-    let alert = |kind, (title, subtitle): (String, String)| Alert { provider: after.provider, kind, title, subtitle, nudge: None };
+    let alert = |kind, (title, subtitle): (String, String)| Alert { provider: after.provider, kind, title, subtitle };
 
     let said = if !blocked_before && turns.iter().any(|t| from(t) < 100 && is(t) >= 100) {
         // Out until the last of them resets: that one names the notice.
         seen.windows.iter().filter(|w| out(w)).max_by_key(|w| later(w)).map(|w| {
-            let mut a = alert(AlertKind::Out, limit_words(format!("{name}: {} used up", w.label), format!("{name}: 100% used"), w, when(w, now, cfg, "None left for now")));
-            a.nudge = (cfg.inference && after.provider != ProviderId::Oyenza).then(|| NUDGE.to_string());
-            a
+            alert(AlertKind::Out, limit_words(format!("{name}: {} used up", w.label), format!("{name}: 100% used"), w, when(w, now, cfg, "None left for now")))
         })
     } else if let Some(left) = low {
         let left = Money { micros: left.max(0), currency: "USD".into() };
@@ -337,7 +325,7 @@ mod tests {
         let mut m = Memory::default();
         let said = feed(&mut m, &[snap(Claude, vec![five(0.7)]), snap(Claude, vec![five(0.9)]), snap(Claude, vec![five(0.95)])], &cfg());
         assert!(said[0].is_empty() && said[2].is_empty());
-        assert_eq!(said[1], vec![Alert { provider: Claude, kind: AlertKind::Near(90), title: "Claude Code: 90% of 5-hour".into(), subtitle: "Resets 14:20".into(), nudge: None }]);
+        assert_eq!(said[1], vec![Alert { provider: Claude, kind: AlertKind::Near(90), title: "Claude Code: 90% of 5-hour".into(), subtitle: "Resets 14:20".into() }]);
         // Exactly on the line counts, whatever the float did.
         let mut m = Memory::default();
         let said = feed(&mut m, &[snap(Codex, vec![five(0.79)]), snap(Codex, vec![five(160.0 / 200.0)])], &cfg());
@@ -363,7 +351,6 @@ mod tests {
         let mut m = Memory::default();
         let said = feed(&mut m, &[snap(Codex, vec![five(0.5)]), snap(Codex, vec![five(1.0)])], &cfg());
         assert_eq!(words(&said[1]), [(AlertKind::Out, "Codex: 5-hour used up", "Resets 14:20")]);
-        assert_eq!(said[1][0].nudge, None);
     }
 
     #[test]
@@ -484,26 +471,25 @@ mod tests {
     #[test]
     fn a_balance_under_the_floor_says_so_once() {
         let mut m = Memory::default();
-        let said = feed(&mut m, &[balance(Oyenza, 4.2), balance(Oyenza, 1.5), balance(Oyenza, 0.8), balance(Oyenza, 0.6)], &cfg());
+        let said = feed(&mut m, &[balance(OpenRouter, 4.2), balance(OpenRouter, 1.5), balance(OpenRouter, 0.8), balance(OpenRouter, 0.6)], &cfg());
         assert_eq!(said.iter().map(Vec::len).collect::<Vec<_>>(), [0, 0, 1, 0]);
-        assert_eq!(words(&said[2]), [(AlertKind::Low, "Oyenza Inference: $0.80 left", "Top up to keep going")]);
-        assert_eq!(said[2][0].nudge, None);
+        assert_eq!(words(&said[2]), [(AlertKind::Low, "OpenRouter: $0.80 left", "Top up to keep going")]);
         // A refund or a small top-up, then under again: nothing new.
-        let said = feed(&mut m, &[balance(Oyenza, 1.2), balance(Oyenza, 0.9)], &cfg());
+        let said = feed(&mut m, &[balance(OpenRouter, 1.2), balance(OpenRouter, 0.9)], &cfg());
         assert!(said.concat().is_empty());
         // Unknown is not zero: a reading without a balance says nothing and forgets nothing.
-        assert!(m.changes(&snap(Oyenza, Vec::new()), NOW, &cfg()).is_empty());
-        assert!(m.changes(&balance(Oyenza, 0.7), NOW, &cfg()).is_empty());
+        assert!(m.changes(&snap(OpenRouter, Vec::new()), NOW, &cfg()).is_empty());
+        assert!(m.changes(&balance(OpenRouter, 0.7), NOW, &cfg()).is_empty());
         // A real top-up, spent down again: said again.
-        let said = feed(&mut m, &[balance(Oyenza, 10.0), balance(Oyenza, 0.5)], &cfg());
-        assert_eq!(words(&said[1]), [(AlertKind::Low, "Oyenza Inference: $0.50 left", "Top up to keep going")]);
+        let said = feed(&mut m, &[balance(OpenRouter, 10.0), balance(OpenRouter, 0.5)], &cfg());
+        assert_eq!(words(&said[1]), [(AlertKind::Low, "OpenRouter: $0.50 left", "Top up to keep going")]);
         // Overdrawn reads as nothing left.
         let mut m = Memory::default();
         let said = feed(&mut m, &[balance(OpenRouter, 3.0), balance(OpenRouter, -0.25)], &cfg());
         assert_eq!(words(&said[1]), [(AlertKind::Low, "OpenRouter: $0.00 left", "Top up to keep going")]);
         // No floor, no notice; and euros aren't dollars.
         let mut m = Memory::default();
-        assert!(feed(&mut m, &[balance(Oyenza, 4.2), balance(Oyenza, 0.1)], &AlertCfg { floor_usd: 0.0, ..cfg() }).concat().is_empty());
+        assert!(feed(&mut m, &[balance(OpenRouter, 4.2), balance(OpenRouter, 0.1)], &AlertCfg { floor_usd: 0.0, ..cfg() }).concat().is_empty());
         let eur = |v: f64| {
             let mut s = balance(MiniMax, v);
             s.balance.as_mut().unwrap().currency = "EUR".into();
@@ -555,20 +541,6 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_running_out_points_to_oyenza_inference_when_connected() {
-        let on = AlertCfg { inference: true, ..cfg() };
-        let mut m = Memory::default();
-        let said = feed(&mut m, &[snap(Claude, vec![five(0.7)]), snap(Claude, vec![five(0.9)]), snap(Claude, vec![five(1.0)])], &on);
-        assert_eq!(said[1][0].nudge, None);
-        assert_eq!(said[2][0].nudge.as_deref(), Some(NUDGE));
-        // Never for Oyenza Inference itself.
-        let mut m = Memory::default();
-        let w = |used| Window::new(WindowKind::Daily, "Daily", used).resets(Some(FIVE_RESET));
-        let said = feed(&mut m, &[snap(Oyenza, vec![w(0.5)]), snap(Oyenza, vec![w(1.0)])], &on);
-        assert_eq!((said[1][0].kind, said[1][0].nudge.as_deref()), (AlertKind::Out, None));
-    }
-
-    #[test]
     fn a_long_name_moves_the_window_to_the_second_line() {
         let dec1 = parse_time("2026-11-30T17:00:00Z").unwrap();
         let premium = |used| Window::new(WindowKind::Monthly, "Premium requests", used).resets(Some(dec1));
@@ -614,7 +586,7 @@ mod tests {
                 let w = |used| Window::new(WindowKind::Other, label, used).resets(Some(WEEK_RESET));
                 let fresh = Window::new(WindowKind::Other, label, 0.0).resets(Some(WEEK_RESET + 7 * 24 * H));
                 let mut m = Memory::default();
-                let twelve = AlertCfg { use_24h: false, inference: true, ..cfg() };
+                let twelve = AlertCfg { use_24h: false, ..cfg() };
                 all.extend(feed(&mut m, &[snap(id, vec![w(0.5)]), snap(id, vec![w(0.99)]), snap(id, vec![w(1.0)])], &twelve).concat());
                 all.extend(m.changes(&snap(id, vec![fresh]), WEEK_RESET + 60, &twelve));
             }
@@ -624,7 +596,7 @@ mod tests {
         assert_eq!(all.len(), ProviderId::ALL.len() * (labels.len() * 3 + 1));
         for a in &all {
             assert!(em(&a.title) * 15.0 * 1.05 <= 292.0, "too wide: {:?}", a.title);
-            for line in [Some(&a.subtitle), a.nudge.as_ref()].into_iter().flatten() {
+            for line in [&a.subtitle] {
                 assert!(em(line) * 12.0 <= 292.0, "too wide: {line:?}");
                 assert!(!line.contains('\u{2014}') && !a.title.contains('\u{2014}'));
             }

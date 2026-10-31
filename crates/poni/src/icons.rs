@@ -121,8 +121,7 @@ pub enum Icon {
     Zai,
     MiniMax,
     OpenRouter,
-    /// The Oyenza mark (Oyen's head): Oyenza Inference. Not the Oyenza tab,
-    /// which is `Wallet`.
+    /// The Oyenza mark (Oyen's head), for the Oyenza account section.
     Oyenza,
 }
 
@@ -139,7 +138,6 @@ pub fn service(id: ProviderId) -> Icon {
         ProviderId::Zai => Icon::Zai,
         ProviderId::MiniMax => Icon::MiniMax,
         ProviderId::OpenRouter => Icon::OpenRouter,
-        ProviderId::Oyenza => Icon::Oyenza,
     }
 }
 
