@@ -11,8 +11,6 @@
 
 pub mod addons;
 pub mod card;
-pub mod downloads;
-pub mod downloads_offer;
 pub mod focus;
 pub mod media;
 pub mod notes;
@@ -77,8 +75,6 @@ pub enum PageKind {
     Record,
     /// Prayer times, while that add-on is on ([`tabs`]).
     Prayer,
-    /// Links to save as video or sound, while the Downloader add-on is on ([`tabs`]).
-    Downloads,
     /// Which apps' notifications show on the island, while the
     /// Notifications add-on is on ([`tabs`]; Windows only).
     Notifications,
@@ -92,7 +88,7 @@ pub enum PageKind {
 impl PageKind {
     /// The tab row's order: the island's own pages, Oyenza, then the
     /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 16] = [
+    pub const ALL: [PageKind; 15] = [
         PageKind::Media,
         PageKind::Today,
         PageKind::Shelf,
@@ -105,7 +101,6 @@ impl PageKind {
         PageKind::Script,
         PageKind::Record,
         PageKind::Prayer,
-        PageKind::Downloads,
         PageKind::Notifications,
         PageKind::Addons,
         PageKind::Settings,
@@ -125,7 +120,6 @@ impl PageKind {
             PageKind::Record => "record",
             PageKind::Oyenza => "oyenza",
             PageKind::Prayer => "prayer",
-            PageKind::Downloads => "downloads",
             PageKind::Notifications => "notifications",
             PageKind::Addons => "addons",
             PageKind::Settings => "settings",
@@ -151,7 +145,6 @@ impl PageKind {
             PageKind::Record => "Record",
             PageKind::Oyenza => "Oyenza",
             PageKind::Prayer => "Prayer",
-            PageKind::Downloads => "Downloads",
             PageKind::Notifications => "Notifications",
             PageKind::Addons => "Add-ons",
             PageKind::Settings => "Settings",
@@ -172,7 +165,6 @@ impl PageKind {
             PageKind::Record => Icon::Recorder,
             PageKind::Oyenza => Icon::Wallet,
             PageKind::Prayer => Icon::Moon,
-            PageKind::Downloads => Icon::Download,
             PageKind::Notifications => Icon::Bell,
             PageKind::Addons => Icon::Addons,
             PageKind::Settings => Icon::Gear,
@@ -228,7 +220,6 @@ fn row(st: &AppState, open: Option<PageKind>) -> Vec<PageKind> {
             PageKind::System => st.system_on(),
             PageKind::Prayer => st.prayer_on(),
             PageKind::Script => st.script_on(),
-            PageKind::Downloads => st.downloader_on(),
             PageKind::Record => st.record_on(),
             PageKind::Notifications => st.notifications_on(),
             p if p.hideable() => !st.tab_hidden(p) || open == Some(p),
@@ -259,7 +250,6 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Record => record::height(st),
         PageKind::Oyenza => oyenza::height(st),
         PageKind::Prayer => prayer::height(st),
-        PageKind::Downloads => downloads::height(st),
         PageKind::Notifications => notifications::height(st),
         PageKind::Addons => addons::height(st),
         PageKind::Settings => settings::height(st),
@@ -280,7 +270,6 @@ pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
         PageKind::Record => record::next_wake(st),
         PageKind::Prayer => prayer::next_wake(st),
         PageKind::Today => today::next_wake(st),
-        PageKind::Downloads => downloads::next_wake(st),
         PageKind::Notes => notes::next_wake(st),
         _ => None,
     };
@@ -396,7 +385,6 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Record => record::draw(ui, st, area),
         PageKind::Oyenza => oyenza::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
-        PageKind::Downloads => downloads::draw(ui, st, area),
         PageKind::Notifications => notifications::draw(ui, st, area),
         PageKind::Addons => addons::draw(ui, st, area),
         PageKind::Settings => settings::draw(ui, st, area),
@@ -826,33 +814,12 @@ mod tests {
     }
 
     #[test]
-    fn downloads_has_a_tab_only_with_studio_pro() {
+    fn notifications_has_a_tab_only_on_windows_while_its_add_on_is_on() {
         // Notifications is free (Luca, 28 Oct): its tab needs no sign-in.
         let mut st = state();
         st.settings.set_addon(poni_core::addons::NOTIFICATIONS.id, true);
         st.addons.insert(poni_core::addons::NOTIFICATIONS.id, poni_core::addons::Status::Ready);
-        assert_eq!(tabs(&st).contains(&PageKind::Notifications), cfg!(windows), "signed out, no Pro");
-        for (page, addon) in [(PageKind::Downloads, poni_core::addons::DOWNLOADER)] {
-            let mut st = state();
-            st.downloader_offered = true;
-            st.settings.set_addon(addon.id, true);
-            st.addons.insert(addon.id, poni_core::addons::Status::Ready);
-            assert!(!tabs(&st).contains(&page), "{}: signed out", addon.id);
-            st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
-            assert!(!tabs(&st).contains(&page), "{}: before the server's answer", addon.id);
-            st.oyenza.pro = Some(false);
-            assert!(!tabs(&st).contains(&page), "{}: an account without Pro", addon.id);
-            st.oyenza.pro = Some(true);
-            assert!(tabs(&st).contains(&page), "{}", addon.id);
-            // Signed out again: gone, whatever the server said before.
-            st.oyenza.link = OyenzaLink::Off;
-            assert!(!tabs(&st).contains(&page), "{}", addon.id);
-            // Pro isn't known yet at start: an island last open on its page opens on the first tab.
-            let store = Store { last_page: page.key().into(), ..Store::default() };
-            let mut settings = Settings { remember_page: true, ..Settings::default() };
-            settings.set_addon(addon.id, true);
-            assert_eq!(AppState::new(settings, store).page, PageKind::ALL[0], "{}", addon.id);
-        }
+        assert_eq!(tabs(&st).contains(&PageKind::Notifications), cfg!(windows));
     }
 
     #[test]

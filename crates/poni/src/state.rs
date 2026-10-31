@@ -352,8 +352,6 @@ pub struct PageUiState {
     /// the side of the camera they peek out from (`mac/notch.rs`).
     #[cfg(target_os = "macos")]
     pub peek: poni_core::peek::Peek,
-    /// The Downloads page: its link field, mode and scroll.
-    pub downloads: crate::pages::downloads::DownloadsUi,
     /// The AI tab's own state while it shows (`pages::usage`).
     pub usage: crate::pages::usage::UsageUi,
     /// The Notes page: when the last notes were saved (Oyen's tick), a short
@@ -758,11 +756,6 @@ pub struct AppState {
     /// the Record tab can show (`record_on`). Asked at start, as the island
     /// opens and when the recorder writes, never at rest.
     pub recorder: bool,
-    /// The Downloads page's jobs (`poni_core::downloads`), in memory only.
-    pub downloads: poni_core::downloads::Jobs,
-    /// This app offers the Downloader: Windows outside the Microsoft Store
-    /// build, and the Mac (set at start).
-    pub downloader_offered: bool,
     /// The recorder's recording, as it last told the island.
     pub rec: RecView,
     /// Whether Windows lets the Notifications add-on read notifications.
@@ -836,8 +829,6 @@ impl AppState {
             script_note: None,
             script_hidden: None,
             recorder: false,
-            downloads: poni_core::downloads::Jobs::default(),
-            downloader_offered: false,
             rec: RecView::default(),
             notify_access: NotifyAccess::Unknown,
             usage: UsageState::default(),
@@ -857,7 +848,6 @@ impl AppState {
         let off = match st.page {
             PageKind::Script => !st.script_on(),
             PageKind::System => !st.system_on(),
-            PageKind::Downloads => !st.downloader_on(),
             PageKind::Record => !st.record_on(),
             PageKind::Notifications => !st.notifications_on(),
             PageKind::Notes => !st.notes_on(),
@@ -915,12 +905,6 @@ impl AppState {
     /// The System add-on is on: the System tab shows.
     pub fn system_on(&self) -> bool {
         self.addon(poni_core::addons::SYSTEM.id) == AddonStatus::Ready
-    }
-
-    /// The Downloader add-on is on, with its tools in place, for an account
-    /// with Studio Pro: the Downloads tab shows.
-    pub fn downloader_on(&self) -> bool {
-        self.downloader_offered && self.studio_pro() == Some(true) && self.addon(poni_core::addons::DOWNLOADER.id) == AddonStatus::Ready
     }
 
     /// The Notifications add-on is on (Windows): its tab shows, and new

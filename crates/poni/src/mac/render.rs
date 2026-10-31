@@ -143,13 +143,6 @@ enum Scene {
     /// and limits, a trouble mix, nothing found, the first look, connecting
     /// and connected Oyenza Inference, the Services list.
     Ai(crate::pages::usage::Picture),
-    /// The Downloader, signed in with Studio Pro: the Downloads page with a
-    /// download coming in, one waiting, one done and one failed; the closed
-    /// island while it downloads (around a notch, the ring and the percent
-    /// sit in the ears); and the Add-ons tab with its row.
-    Downloads,
-    DownloadActivity,
-    AddonsDownloader,
     /// Meeting notes, signed in with Studio Pro: the page while Oyen listens
     /// (42 s in), the closed island 12 minutes in (around a notch, Oyen in
     /// one ear and the time in the other), and the Add-ons tab with every
@@ -227,9 +220,7 @@ const UPDATE_SCENES: [Scene; 2] = [Scene::UpdateSheet, Scene::UpdateReady];
 /// after the Update sheet (so every other picture keeps its number).
 const RECORD_SCENES: [Scene; 5] = [Scene::Record, Scene::RecordLive, Scene::RecordActivity, Scene::RecordPaused, Scene::AddonsRecorder];
 
-/// The Downloader, last of all (so every other picture keeps its number).
-const DOWNLOAD_SCENES: [Scene; 3] = [Scene::Downloads, Scene::DownloadActivity, Scene::AddonsDownloader];
-/// Meeting notes and every Pro add-on, after the Downloader.
+/// Meeting notes and every Pro add-on.
 const NOTES_SCENES: [Scene; 3] = [Scene::NotesListening, Scene::NotesActivity, Scene::AddonsPro];
 
 impl Scene {
@@ -279,9 +270,6 @@ impl Scene {
             Scene::RecordPaused => "record-paused-activity".into(),
             Scene::AddonsRecorder => "page-addons-recorder".into(),
             Scene::Ai(p) => p.name().into(),
-            Scene::Downloads => "page-downloads".into(),
-            Scene::DownloadActivity => "download-activity".into(),
-            Scene::AddonsDownloader => "page-addons-downloader".into(),
             Scene::NotesListening => "page-notes-listening".into(),
             Scene::NotesActivity => "notes-activity".into(),
             Scene::AddonsPro => "page-addons-pro".into(),
@@ -347,10 +335,10 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
-    // The Add-ons tab, Prayer times, Settings, the headphone pop-up, Oyenza, Power, Today signed in, Prayer times abroad, the Update sheet, Record, the AI tab and the Downloader in every theme, after Pill's.
+    // The Add-ons tab, Prayer times, Settings, the headphone pop-up, Oyenza, Power, Today signed in, Prayer times abroad, the Update sheet, Record, the AI tab and Meeting notes in every theme, after Pill's.
     let first = SCENES.len() + SYSTEM_SCENES.len() + 2 + PILL_SCENES.len();
     let mut next = first;
-    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(OYENZA_SCENES).chain(POWER_SCENES).chain(TODAY_SCENES).chain(PRAYER_WORLD_SCENES).chain(UPDATE_SCENES).chain(RECORD_SCENES).chain(ai_scenes()).chain(DOWNLOAD_SCENES).chain(NOTES_SCENES);
+    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(OYENZA_SCENES).chain(POWER_SCENES).chain(TODAY_SCENES).chain(PRAYER_WORLD_SCENES).chain(UPDATE_SCENES).chain(RECORD_SCENES).chain(ai_scenes()).chain(NOTES_SCENES);
     for (k, scene) in ADDON_SCENES.into_iter().chain(PRAYER_SCENES).chain(later).enumerate() {
         let path = out.join(format!("{:02}-{}{suffix}.png", first + k, scene.name()));
         match render_scene(&mut gfx, scene, theme, notch, &path) {
@@ -690,38 +678,6 @@ const SAMPLE_PLACES: &str = r#"{"places":[
     {"id":"makkah","label":"Makkah","kind":"abroad","prov":"Arab Saudi","lat":21.4225,"lng":39.8261,"tz":"Asia/Riyadh","method":"ummalqura"}
 ]}"#;
 
-/// The Downloads page's list, newest first, as on Windows (`selftest.rs`):
-/// a YouTube link whose puzzle QuickJS is solving, a film coming in from
-/// PeerTube, a private video that failed and a finished film, moved along by
-/// yt-dlp's lines as the app moves them, so the bar and the island's pill
-/// count the bytes as they do for real. No pictures, so nothing is fetched.
-fn seed_downloads(st: &mut AppState) {
-    use poni_core::downloads::{Jobs, State};
-    use poni_core::ytdlp::{Line, Mode as Get};
-    let unix = st.unix;
-    let info = |title: &str, site: &str| Line::Info { title: title.into(), site: site.into(), thumbnail: None, duration_s: None };
-    let mut jobs = Jobs::default();
-    // Oldest first: each one goes on top of the list.
-    let bunny = jobs.add("https://archive.org/details/BigBuckBunny_124".into(), Get::Video, unix - 25 * 60);
-    jobs.starting(bunny);
-    jobs.apply(bunny, info("Big Buck Bunny", "Internet Archive"));
-    jobs.apply(bunny, Line::Done { path: "/Users/sample/Downloads/Big Buck Bunny.mp4".into() });
-    jobs.set_size(bunny, 332_000_000);
-    let private = jobs.add("https://video.blender.org/w/4e0c1f7a-93b2-4d58-a6e1-2f8b9c3d7a51".into(), Get::Video, unix - 4 * 60);
-    // yt-dlp's private video (`ytdlp::Problem::Private`), in the page's words.
-    if let Some(job) = jobs.list.iter_mut().find(|j| j.id == private) {
-        job.state = State::Failed("This video is private".into());
-    }
-    let film = jobs.add("https://video.blender.org/w/b29290cc-dc51-4a12-bcb2-2aa5fece7605".into(), Get::Video, unix - 50);
-    jobs.starting(film);
-    jobs.apply(film, info("OVERGROWN: a feature film project by Blender Studio", "PeerTube"));
-    jobs.apply(film, Line::Progress { done: 8_600_000, total: Some(23_300_000), speed: Some(2_100_000.0), eta_s: Some(7) });
-    let youtube = jobs.add("https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(), Get::Video, unix - 20);
-    jobs.starting(youtube);
-    jobs.apply(youtube, Line::Solving);
-    st.downloads = jobs;
-}
-
 fn base_state(theme: Theme) -> AppState {
     let settings = Settings { theme, sounds: false, show_media_activity: true, lyrics: true, ..Default::default() };
     let mut st = AppState::new(settings, Store::default());
@@ -994,36 +950,11 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.page = PageKind::Today;
             Mode::Expanded(PageKind::Today)
         }
-        Scene::Downloads | Scene::DownloadActivity | Scene::AddonsDownloader => {
-            // The Downloader is an add-on, off by default, for Studio Pro: on
-            // for its own scenes, signed in with Pro.
-            st.oyenza = fake_oyenza(&st, false);
-            st.oyenza.pro = Some(true);
-            st.downloader_offered = true;
-            st.settings.set_addon(poni_core::addons::DOWNLOADER.id, true);
-            st.addons.insert(poni_core::addons::DOWNLOADER.id, AddonStatus::Ready);
-            match scene {
-                Scene::AddonsDownloader => {
-                    st.page = PageKind::Addons;
-                    Mode::Expanded(PageKind::Addons)
-                }
-                Scene::DownloadActivity => {
-                    seed_downloads(&mut st);
-                    Mode::Activity(activities::Activity::Download)
-                }
-                _ => {
-                    seed_downloads(&mut st);
-                    st.page = PageKind::Downloads;
-                    Mode::Expanded(PageKind::Downloads)
-                }
-            }
-        }
         Scene::NotesListening | Scene::NotesActivity | Scene::AddonsPro => {
             // Signed in with Studio Pro, every Pro add-on switched on.
             st.oyenza = fake_oyenza(&st, false);
             st.oyenza.pro = Some(true);
-            st.downloader_offered = true;
-            for a in [poni_core::addons::MEETING_NOTES, poni_core::addons::DOWNLOADER] {
+            for a in [poni_core::addons::MEETING_NOTES] {
                 st.settings.set_addon(a.id, true);
                 st.addons.insert(a.id, AddonStatus::Ready);
             }

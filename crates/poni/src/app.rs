@@ -610,8 +610,6 @@ impl App {
         let taskbar_created_msg = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
         // Oyenza Studio Recorder installed: the Record tab can show (one registry read).
         st.recorder = selftest_dir.is_none() && services::recorder::installed();
-        // The Downloader: not in the Microsoft Store build.
-        st.downloader_offered = !crate::autostart::packaged();
         let selftest = selftest_dir.map(selftest::SelfTest::new);
         let saved_settings = st.settings.clone();
         Ok(Self {
@@ -1049,10 +1047,6 @@ impl App {
                                 }
                                 None => {}
                             }
-                        }
-                        // The download pill opens on its page.
-                        if self.mode == Mode::Activity(activities::Activity::Download) {
-                            self.st.page = PageKind::Downloads;
                         }
                         self.st.hud = None;
                         if !opened {
@@ -1922,8 +1916,8 @@ impl App {
         }
     }
 
-    /// Signed in (at start, or just now) with the Downloader switched on:
-    /// whether the account has Studio Pro, now, so its tab doesn't wait for
+    /// Signed in (at start, or just now) with Meeting notes switched on:
+    /// whether the account has Studio Pro, now, so its page doesn't wait for
     /// the Add-ons page to open (`pages::addons::pro_wanted`).
     fn ask_pro(&self) {
         if pages::addons::pro_wanted(&self.st) {
@@ -1932,14 +1926,9 @@ impl App {
     }
 
     /// Studio Pro came, or went (the server's word, or signing out): the
-    /// Downloader's downloads stop as it goes, and its files come with it
-    /// (`Services::set_pro`). Its tab follows by itself (`downloader_on`), and
-    /// its page on screen leaves for Add-ons.
+    /// add-ons' files that wait for Pro come or go (`Services::set_pro`).
     fn pro_changed(&mut self) {
         let pro = self.st.studio_pro() == Some(true);
-        if !pro {
-            self.downloads_off();
-        }
         if let Some(s) = self.services.as_ref() {
             s.set_pro(pro);
         }
@@ -2057,11 +2046,6 @@ impl App {
         }
         if !before.prayer.follow_location && self.st.settings.prayer.follow_location && self.st.prayer_on() {
             self.locate();
-        }
-        // The Downloader: off stops its downloads before its tools are deleted.
-        let downloader_id = poni_core::addons::DOWNLOADER.id;
-        if before.addon_on(downloader_id) && !self.st.settings.addon_on(downloader_id) {
-            self.downloads_off();
         }
         // An add-on switched on downloads its files; off deletes them.
         for a in poni_core::addons::ALL {
@@ -2231,10 +2215,6 @@ impl App {
         if let Some(w) = self.settings_win.as_mut().filter(|_| shown) {
             w.view.dirty = true;
         }
-        // A download's bytes coming in while nobody can see the island (locked,
-        // display off) wait for the next frame something else asks for: the
-        // pill catches up then, as nothing else of it moves on its own.
-        let unseen = matches!(ev, AppEvent::Download { line: poni_core::ytdlp::Line::Progress { .. }, .. }) && (self.locked || self.display_off);
         match ev {
             AppEvent::Backdrop => {
                 if self.glass.on_backdrop(self.hwnd, &mut self.gfx) {
@@ -2453,8 +2433,6 @@ impl App {
             AppEvent::Notify(ev) => self.on_notify(ev),
             AppEvent::Usage(ev) => self.on_usage(ev),
             AppEvent::AdzanEnded => self.adzan_ended(),
-            AppEvent::Download { id, line } => self.download_line(id, line),
-            AppEvent::DownloadEnded { id, ok } => self.download_ended(id, ok),
             AppEvent::Notes(reply) => self.notes_reply(*reply),
             AppEvent::NotesStopped(issue) => {
                 pwarn!("notes: the recording stopped by itself ({issue:?})");
@@ -2465,9 +2443,7 @@ impl App {
         if let Some(before) = media_before {
             self.after_media_change(before, now);
         }
-        if !unseen {
-            self.request_frame();
-        }
+        self.request_frame();
     }
 
     /// (player, track, playing) of the current media session.
@@ -3291,11 +3267,10 @@ impl App {
         self.prayer_tick();
         self.notes_tick();
         self.script_tick();
-        // Prayer times, System or Downloader switched off: its tab is gone.
+        // Prayer times or System switched off: its tab is gone.
         let gone = match self.st.page {
             PageKind::Prayer => !self.st.prayer_on(),
             PageKind::System => !self.st.system_on(),
-            PageKind::Downloads => !self.st.downloader_on(),
             PageKind::Notifications => !self.st.notifications_on(),
             PageKind::Notes => !self.st.notes_on(),
             _ => false,
@@ -3375,9 +3350,6 @@ impl App {
             }
             self.mode = target;
             retarget = true;
-            if target == Mode::Expanded(PageKind::Downloads) {
-                self.downloads_page_shown();
-            }
         } else {
             // Size can change within a mode (a page's height, the hover lift); follow it.
             let g = self.geom_for(&self.mode);
@@ -4432,7 +4404,6 @@ impl App {
                         services::cities::fetch(file, self.sink.clone());
                     }
                 }
-                Command::Download(c) => self.download_cmd(c),
                 Command::Notify(c) => self.notify_cmd(c),
             }
         }
@@ -5166,10 +5137,6 @@ fn paired_phones(pairs: Vec<poni_core::pairdrop::Pair>) -> Vec<PairedPhone> {
 fn files_label(n: usize) -> String {
     format!("{n} {}", if n == 1 { "file" } else { "files" })
 }
-
-// The Downloads page's commands and yt-dlp's reports.
-#[path = "app_downloads.rs"]
-mod downloads;
 
 #[cfg(test)]
 mod tests {

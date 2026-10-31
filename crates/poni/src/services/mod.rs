@@ -12,9 +12,6 @@ pub mod clipboard;
 pub mod frames;
 pub mod fullscreen;
 pub mod cities;
-pub mod downloader;
-#[cfg(test)]
-mod downloader_live;
 pub mod http;
 pub mod imaging;
 pub mod location;
@@ -52,8 +49,6 @@ pub struct Services {
     oyenza: Option<oyenza::OyenzaService>,
     pairdrop: Option<pairdrop::PairDropService>,
     addons: Option<addons::AddonService>,
-    /// Started at the first download ([`Services::download`]).
-    downloader: std::cell::OnceCell<Option<downloader::DownloaderService>>,
     /// Started the first time the AI tab opens or its notices are on
     /// ([`Services::usage_watch`]).
     usage: std::cell::OnceCell<Option<usage::UsageService>>,
@@ -85,18 +80,16 @@ impl Services {
         // Asks nothing until a phone is paired.
         let pairdrop = started("pair drop", pairdrop::PairDropService::start(sink.clone()));
         // Asleep unless an add-on is on; then it only checks the files it has.
-        // The Microsoft Store build has no Downloader, whatever settings.json says.
         // A Studio Pro add-on's files wait for Pro (`set_pro`): a filter here
-        // would delete the Downloader's tools at every start, before the
-        // server's answer, and fetch them again after it.
-        let store = crate::autostart::packaged();
+        // would delete them at every start, before the server's answer, and
+        // fetch them again after it.
         let on = poni_core::addons::ALL
             .iter()
-            .filter(|a| settings.addon_on(a.id) && !(store && a.id == poni_core::addons::DOWNLOADER.id))
+            .filter(|a| settings.addon_on(a.id))
             .map(|a| a.id)
             .collect();
         let addons = started("add-ons", addons::AddonService::start(sink.clone(), on));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, pairdrop, addons, usage: std::cell::OnceCell::new(), downloader: std::cell::OnceCell::new(), sink: sink.clone() }
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, pairdrop, addons, usage: std::cell::OnceCell::new(), sink: sink.clone() }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -109,20 +102,6 @@ impl Services {
     /// False when that thread couldn't start.
     pub fn run_job(&self, job: addons::Job) -> bool {
         self.addons.as_ref().map(|a| a.run(job)).is_some()
-    }
-
-    /// Run yt-dlp for `req` (the Downloader add-on's tools are in place).
-    pub fn download(&self, req: poni_core::ytdlp::Request) {
-        if let Some(d) = self.downloader.get_or_init(|| started("downloader", downloader::DownloaderService::start(self.sink.clone()))) {
-            d.run(req);
-        }
-    }
-
-    /// Stop download `id` (its yt-dlp and whatever yt-dlp started).
-    pub fn stop_download(&self, id: u64) {
-        if let Some(Some(d)) = self.downloader.get() {
-            d.stop(id);
-        }
     }
 
     /// An add-on was switched on (download its files) or off (delete them).

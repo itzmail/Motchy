@@ -44,15 +44,9 @@ pub mod lyrics;
 // So is the add-ons' downloader: the Mac offers every add-on with it.
 #[path = "../services/addons.rs"]
 pub mod addons;
-// And the Downloader add-on's runner (a process group per download here).
-#[path = "../services/downloader.rs"]
-pub mod downloader;
 // And Meeting notes' recording and handing over (its sources: capture.rs).
 #[path = "../services/notes.rs"]
 pub mod notes;
-#[cfg(test)]
-#[path = "../services/downloader_live.rs"]
-mod downloader_live;
 #[path = "../services/cities.rs"]
 pub mod cities;
 // And Oyenza sign-in: its key goes through secret.rs above.

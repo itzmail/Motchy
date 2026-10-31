@@ -54,16 +54,6 @@ pub fn phone_inbox_dir() -> PathBuf {
     if before_rename.is_dir() { before_rename } else { downloads.join("Oyenza Studio") }
 }
 
-/// Where the Downloader saves videos and sound: `~/Downloads`, as a browser
-/// would. An app may create files there without asking (macOS asks before
-/// it reads one it didn't make). Under `PONI_HOME` for the smoke run.
-pub fn media_downloads_dir() -> PathBuf {
-    if let Some(h) = home_override() {
-        return h.join("downloads");
-    }
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("Downloads")
-}
-
 /// A meeting's audio while it is recorded and handed over (Meeting notes),
 /// deleted once its notes are saved.
 pub fn notes_audio_dir() -> PathBuf {

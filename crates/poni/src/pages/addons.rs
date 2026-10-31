@@ -14,12 +14,10 @@
 //! (`Status::Unpinned`).
 //! Both apps list every add-on ([`OFFERED`]) but Screen recorder, which shows
 //! once Oyenza Studio Recorder is installed, and Notifications, which only
-//! Windows has ([`rows`]). Eight rows (the recorder's with them) are one
-//! line each: the name, then the line after it.
+//! Windows has ([`rows`]). Seven rows or more are one line each: the name,
+//! then the line after it.
 //!
-//! A Studio Pro add-on's row says Pro where its size was. The
-//! Downloader is listed only for an account with Pro ([`rows`]); the
-//! Downloader's tools come only with it ([`needs_pro`]).
+//! A Studio Pro add-on's row says Pro where its size was.
 
 use crate::commands::Command;
 use crate::gfx::{TextStyle, Weight};
@@ -66,31 +64,21 @@ pub fn height(st: &AppState) -> f32 {
 /// The page's rows: every add-on offered, Screen recorder only once Oyenza
 /// Studio Recorder is installed and has spoken to the island
 /// (`AppState::recorder_ready`), Notifications only on Windows (a Mac has
-/// no way to read other apps' notifications), Downloader only where it's offered
-/// (`AppState::downloader_offered`).
+/// no way to read other apps' notifications).
 fn rows(st: &AppState) -> Vec<&'static Addon> {
     OFFERED
         .iter()
         .copied()
         .filter(|a| a.id != addons::SCREEN_RECORDER.id || st.recorder_ready())
         .filter(|a| a.id != addons::NOTIFICATIONS.id || cfg!(windows))
-        .filter(|a| a.id != addons::DOWNLOADER.id || (st.downloader_offered && st.studio_pro() == Some(true)))
         .collect()
 }
 
-/// The Pro add-on whose switch works only with Studio Pro, since its tab
-/// needs it (`AppState::downloader_on`): the Downloader, whose tools download
-/// only for Pro. Meeting notes switches on for anyone, and its page says what
-/// Pro is.
-fn needs_pro(a: &Addon) -> bool {
-    a.id == addons::DOWNLOADER.id
-}
-
-/// It is switched on where it's offered: the island asks the server about
-/// Pro as soon as it's signed in (at start, or just connected), so its tab
-/// doesn't wait for this page to open.
+/// Meeting notes is switched on: the island asks the server about Pro as
+/// soon as it's signed in (at start, or just connected), so its page doesn't
+/// wait for this page to open.
 pub fn pro_wanted(st: &AppState) -> bool {
-    st.downloader_offered && st.settings.addon_on(addons::DOWNLOADER.id)
+    st.settings.addon_on(addons::MEETING_NOTES.id)
 }
 
 fn row_h(n: usize) -> f32 {
@@ -107,8 +95,6 @@ fn status(st: &AppState, a: &Addon) -> Status {
         } else {
             Status::Off
         }
-    } else if needs_pro(a) && st.studio_pro() != Some(true) {
-        Status::Off
     } else {
         st.addon(a.id)
     }
@@ -118,12 +104,10 @@ fn status(st: &AppState, a: &Addon) -> Status {
 fn icon(a: &Addon) -> Icon {
     match a.id {
         "sholat" => Icon::Moon,
-        "ja" => Icon::Lyrics,
         "script" => Icon::Script,
         "system" => Icon::Gauge,
         "notifications" => Icon::Bell,
         "recorder" => Icon::Recorder,
-        "downloader" => Icon::Download,
         "notes" => Icon::Notes,
         _ => Icon::Addons,
     }
@@ -226,20 +210,15 @@ mod tests {
     use super::*;
     use poni_core::settings::Settings;
     use poni_core::store::Store;
-    use crate::state::OyenzaLink;
 
     #[test]
     fn every_row_offered_fits_the_page() {
         let mut st = AppState::new(Settings::default(), Store::default());
         let without = rows(&st).len();
-        // Oyenza Studio Recorder installed, and signed in with Pro where the
-        // Downloader is offered: the recorder and the Downloader join.
+        // Oyenza Studio Recorder installed: the recorder joins.
         st.recorder = true;
         st.store.recorder_island = true;
-        st.downloader_offered = true;
-        st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
-        st.oyenza.pro = Some(true);
-        assert_eq!(rows(&st).len(), without + 2);
+        assert_eq!(rows(&st).len(), without + 1);
         assert!(height(&st) <= MAX_H, "the window never grows for this page");
         let h = row_h(rows(&st).len());
         // Few rows keep two lines each; many are a line each, badges apart.
@@ -247,30 +226,10 @@ mod tests {
     }
 
     #[test]
-    fn the_downloader_is_listed_and_switches_only_with_studio_pro() {
-        use poni_core::addons::{DOWNLOADER, NOTIFICATIONS};
+    fn notifications_is_free_and_listed_only_on_windows() {
+        use poni_core::addons::NOTIFICATIONS;
         let mut st = AppState::new(Settings::default(), Store::default());
-        st.downloader_offered = true;
         assert!(!pro_wanted(&st), "nothing to ask about at sign-in");
-        // The Downloader switched on before, its tools in place.
-        st.settings.set_addon(DOWNLOADER.id, true);
-        st.addons.insert(DOWNLOADER.id, Status::Ready);
-        assert!(pro_wanted(&st), "asked at sign-in, though not listed yet");
-        let listed = |st: &AppState| rows(st).iter().any(|a| a.id == DOWNLOADER.id);
-        for (link, pro) in [(OyenzaLink::Off, None), (OyenzaLink::Connected { account: "a•••@example.com".into() }, None), (OyenzaLink::Connected { account: "a•••@example.com".into() }, Some(false))] {
-            st.oyenza.link = link;
-            st.oyenza.pro = pro;
-            assert!(!listed(&st), "not listed without Pro ({pro:?})");
-            assert_eq!(status(&st, &DOWNLOADER), Status::Off, "stays off");
-        }
-        st.oyenza.pro = Some(true);
-        assert!(listed(&st));
-        assert_eq!(status(&st, &DOWNLOADER), Status::Ready);
-        // Not where it isn't offered (the Store build, the Mac), Pro or not.
-        st.downloader_offered = false;
-        assert!(!listed(&st) && !pro_wanted(&st));
-        // Notifications is free (Luca, 28 Oct): listed and on without Pro.
-        st.oyenza = Default::default();
         st.settings.set_addon(NOTIFICATIONS.id, true);
         st.addons.insert(NOTIFICATIONS.id, Status::Ready);
         assert_eq!(status(&st, &NOTIFICATIONS), Status::Ready);

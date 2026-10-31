@@ -10,7 +10,7 @@
 //! doubling to 10 minutes); one whose bytes don't match is thrown away and
 //! not retried until the add-on is switched off and on again. An add-on
 //! whose files this build doesn't pin yet downloads nothing at all. A Studio
-//! Pro add-on's files (`Addon::pro`: the Downloader's tools) are checked and
+//! Pro add-on's files (`Addon::pro`) are checked and
 //! fetched only for an account the server says has Pro
 //! ([`AddonService::set_pro`]). Without it (at start before the answer,
 //! signed out, a no, or an app that never tells, as the Mac's for now) they
@@ -19,7 +19,7 @@
 //! add-on off deletes them as for any other.
 //!
 //! GitHub answers a release download (the add-ons' own pre-releases, and
-//! the Downloader's yt-dlp and QuickJS from theirs) with a redirect to its
+//! a tool's own release) with a redirect to its
 //! file host, release-assets.githubusercontent.com. Both HTTP clients follow
 //! it by themselves: WinRT's `HttpClient` through the `HttpBaseProtocolFilter`
 //! it makes by default (`AllowAutoRedirect` is on unless switched off), the
@@ -239,6 +239,7 @@ fn version_dir(dir: &Path, addon: &Addon) -> PathBuf {
 
 /// Where one of an add-on's files lives once it's on this PC (it is only
 /// there, checked, while the add-on is on).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn file_path(addon: &Addon, name: &str) -> PathBuf {
     version_dir(&crate::paths::addons_dir(), addon).join(name)
 }
@@ -325,13 +326,6 @@ fn ensure(shared: &Shared, client: &Client, sink: &EventSink, dir: &Path, addon:
     let missing: Vec<&AddonFile> = addon.files.iter().filter(|f| !present(&folder.join(f.name), f, &stamp, &mut lines)).collect();
     // Kept now, so tries while the rest can't come don't read these again.
     let stamp = save_stamp(&folder, &stamp, &mut lines);
-    // A Mac runs the Downloader's tools only with their execute bit, which
-    // each gets as it is saved (below); one that lost it gets it back.
-    for f in addon.files.iter().filter(|f| runs(addon, f) && !missing.contains(f)) {
-        if let Err(e) = make_runnable(&folder.join(f.name)) {
-            crate::pwarn!("add-ons: {}: {} can't be made runnable ({e})", addon.id, f.name);
-        }
-    }
     let mut done = total - missing.iter().map(|f| f.size).sum::<u64>();
     if !missing.is_empty() {
         if let Err(e) = fs::create_dir_all(&folder) {
@@ -367,7 +361,7 @@ fn ensure(shared: &Shared, client: &Client, sink: &EventSink, dir: &Path, addon:
             Ok((200, bytes)) if file.matches(&bytes) => {
                 let path = folder.join(file.name);
                 let part = folder.join(format!("{}.part", file.name));
-                let saved = fs::write(&part, &bytes).and_then(|_| if runs(addon, file) { make_runnable(&part) } else { Ok(()) }).and_then(|_| fs::rename(&part, &path));
+                let saved = fs::write(&part, &bytes).and_then(|_| fs::rename(&part, &path));
                 if let Err(e) = saved {
                     let _ = fs::remove_file(&part);
                     crate::pwarn!("add-ons: {}: could not save {} ({e})", addon.id, file.name);
@@ -410,30 +404,6 @@ fn ensure(shared: &Shared, client: &Client, sink: &EventSink, dir: &Path, addon:
     crate::pinfo!("add-ons: {}: ready", addon.id);
     sink.send(AppEvent::Addon { id: addon.id, status: Status::Ready });
     Have::Complete
-}
-
-/// Whether `file` is a program the app runs (the Downloader's tools).
-fn runs(addon: &Addon, file: &AddonFile) -> bool {
-    addon.id == addons::DOWNLOADER.id && addons::is_downloader_tool(file.name)
-}
-
-/// Make a downloaded program runnable. A file the app writes on a Mac can be
-/// read but not run (0644), and yt-dlp, QuickJS and FFmpeg only start with
-/// the execute bit; setting it changes the file's mode, not its bytes or its
-/// last write time, so the stamp still vouches for it. On Windows an .exe
-/// runs as it is.
-#[cfg(unix)]
-pub fn make_runnable(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    if fs::metadata(path)?.permissions().mode() & 0o111 == 0o111 {
-        return Ok(());
-    }
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755))
-}
-
-#[cfg(not(unix))]
-pub fn make_runnable(_: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 fn wait_retry(sink: &EventSink, addon: &Addon, backoff: Duration, why: &str) -> Have {
@@ -511,13 +481,13 @@ mod tests {
 
     #[test]
     fn a_pro_add_on_s_files_come_only_with_pro() {
-        use poni_core::addons::{DOWNLOADER, PRAYER_TIMES};
+        use poni_core::addons::{MEETING_NOTES, PRAYER_TIMES};
         // Switched on: kept (and fetched) with Pro, left as they are without it.
-        assert_eq!(wanted(&DOWNLOADER, true, true), Some(true));
-        assert_eq!(wanted(&DOWNLOADER, true, false), None);
+        assert_eq!(wanted(&MEETING_NOTES, true, true), Some(true));
+        assert_eq!(wanted(&MEETING_NOTES, true, false), None);
         for pro in [true, false] {
             // Switched off: deleted, Pro or not.
-            assert_eq!(wanted(&DOWNLOADER, false, pro), Some(false));
+            assert_eq!(wanted(&MEETING_NOTES, false, pro), Some(false));
             // Every other add-on goes by its switch alone.
             assert_eq!(wanted(&PRAYER_TIMES, true, pro), Some(true));
             assert_eq!(wanted(&PRAYER_TIMES, false, pro), Some(false));
