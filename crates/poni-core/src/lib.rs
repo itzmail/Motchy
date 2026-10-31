@@ -6,23 +6,19 @@
 //! I/O, which still runs anywhere.
 
 pub mod addons;
-pub mod agenda;
 pub mod applemusic;
 pub mod datetime;
 pub mod frametime;
 pub mod geom;
 pub mod glass;
 pub mod hdr;
-pub mod audio;
 pub mod look;
 pub mod lrc;
 pub mod lrclib;
 pub mod mediaremote;
-pub mod notes;
 pub mod notifications;
 pub mod nowplaying;
 pub mod oyen;
-pub mod oyenza;
 pub mod peek;
 pub mod pomodoro;
 pub mod power;

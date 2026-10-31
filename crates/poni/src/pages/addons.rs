@@ -74,20 +74,12 @@ fn rows(st: &AppState) -> Vec<&'static Addon> {
         .collect()
 }
 
-/// Meeting notes is switched on: the island asks the server about Pro as
-/// soon as it's signed in (at start, or just connected), so its page doesn't
-/// wait for this page to open.
-pub fn pro_wanted(st: &AppState) -> bool {
-    st.settings.addon_on(addons::MEETING_NOTES.id)
-}
-
 fn row_h(n: usize) -> f32 {
     ((MAX_H - ROWS_Y) / n.max(1) as f32).floor().min(ROW_H)
 }
 
 /// Where `a` stands: Screen recorder follows the recorder's install
-/// (`Settings::recorder_on`); the Downloader is off without Pro, even
-/// switched on before; the others, their own switch and download.
+/// (`Settings::recorder_on`); the others, their own switch and download.
 fn status(st: &AppState, a: &Addon) -> Status {
     if a.id == addons::SCREEN_RECORDER.id {
         if st.record_on() {
@@ -165,8 +157,8 @@ fn addon_row(ui: &mut Ui, st: &AppState, r: Rect, i: usize, a: &Addon, card: Opt
     // The size, while there is a choice to make.
     let mut text_right = sw.x - 16.0;
     if status == Status::Off {
-        let size = if a.pro { "Pro".to_string() } else if a.downloads() { fmt_bytes(a.size()) } else { "Built in".to_string() };
-        let style = if a.pro { TextStyle::footnote().weight(Weight::Semibold).color(crate::oyen::ORANGE).right() } else { TextStyle::footnote().color(palette::TEXT_DIM).right() };
+        let size = if a.downloads() { fmt_bytes(a.size()) } else { "Built in".to_string() };
+        let style = TextStyle::footnote().color(palette::TEXT_DIM).right();
         let w = ui.c.measure(&size, &style, 200.0).0.ceil();
         ui.c.text(&size, Rect::new(sw.x - 10.0 - w, r.y, w, r.h), &style);
         text_right = sw.x - 10.0 - w - 16.0;
@@ -229,7 +221,6 @@ mod tests {
     fn notifications_is_free_and_listed_only_on_windows() {
         use poni_core::addons::NOTIFICATIONS;
         let mut st = AppState::new(Settings::default(), Store::default());
-        assert!(!pro_wanted(&st), "nothing to ask about at sign-in");
         st.settings.set_addon(NOTIFICATIONS.id, true);
         st.addons.insert(NOTIFICATIONS.id, Status::Ready);
         assert_eq!(status(&st, &NOTIFICATIONS), Status::Ready);

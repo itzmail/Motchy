@@ -1165,7 +1165,7 @@ fn money_words(m: &Money) -> (String, String) {
 /// Local time minus UTC, in seconds (to the quarter hour, as the app's
 /// other clocks read it).
 fn offset_s(st: &AppState) -> i64 {
-    poni_core::oyenza::offset_minutes(&st.local, st.unix) as i64 * 60
+    poni_core::datetime::offset_minutes(&st.local, st.unix) as i64 * 60
 }
 
 /// Unix seconds on this computer's clock.

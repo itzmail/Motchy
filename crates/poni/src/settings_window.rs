@@ -1,6 +1,6 @@
 //! The Settings window's content: every setting Oyenza Studio has, in a
 //! sidebar of sections (General, Appearance, Island, Music and lyrics,
-//! Pop-ups, Tabs, Add-ons, Focus, Prayer, AI, Oyenza, About), called
+//! Pop-ups, Tabs, Add-ons, Focus, Prayer, AI, About), called
 //! Advanced settings. The last row of the island's Settings page (behind
 //! the gear) and the menu's Advanced settings… open it, in a window of its
 //! own: on Windows a borderless one (`settings_host.rs`), on the Mac a real
@@ -125,12 +125,11 @@ pub enum Section {
     Focus,
     Prayer,
     Ai,
-    Oyenza,
     About,
 }
 
 impl Section {
-    pub const ALL: [Section; 12] = [
+    pub const ALL: [Section; 11] = [
         Section::General,
         Section::Appearance,
         Section::Island,
@@ -141,7 +140,6 @@ impl Section {
         Section::Focus,
         Section::Prayer,
         Section::Ai,
-        Section::Oyenza,
         Section::About,
     ];
 
@@ -157,7 +155,6 @@ impl Section {
             Section::Focus => "Focus",
             Section::Prayer => "Prayer times",
             Section::Ai => "AI usage",
-            Section::Oyenza => "Oyenza account",
             Section::About => "About",
         }
     }
@@ -175,7 +172,6 @@ impl Section {
             Section::Focus => "focus",
             Section::Prayer => "prayer",
             Section::Ai => "ai",
-            Section::Oyenza => "oyenza",
             Section::About => "about",
         }
     }
@@ -192,7 +188,6 @@ impl Section {
             Section::Focus => Icon::Timer,
             Section::Prayer => Icon::Moon,
             Section::Ai => Icon::Ai,
-            Section::Oyenza => Icon::Oyenza,
             Section::About => Icon::Gear,
         }
     }
@@ -210,7 +205,6 @@ impl Section {
             Section::Focus => palette::ORANGE,
             Section::Prayer => Color::hex(0x30B0A0),
             Section::Ai => palette::PURPLE,
-            Section::Oyenza => palette::ORANGE,
             Section::About => Color::hex(0x8E8E93),
         }
     }
@@ -309,8 +303,6 @@ pub enum Block {
     Version,
     /// The four themes as cards with a small picture of each.
     Themes,
-    /// The Oyenza account row (the island's Settings page has the same).
-    Account,
     /// The Add-ons page itself.
     Addons,
     /// A dim line of text.
@@ -462,7 +454,7 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
                 open.push(item(Key::StartPage, "Opens on", None, Ctl::Stepper(start_name.to_string())));
             }
             let tabs = PageKind::HIDEABLE.iter().map(|p| item(Key::Tab(*p), p.title(), None, Ctl::Switch(Some(!st.tab_hidden(*p))))).collect();
-            vec![Block::Group(Some("When the island opens"), open), Block::Group(Some("Tabs in the island"), tabs), Block::Note("AI, Oyenza and the add-ons' pages always have a tab.")]
+            vec![Block::Group(Some("When the island opens"), open), Block::Group(Some("Tabs in the island"), tabs), Block::Note("AI and the add-ons' pages always have a tab.")]
         }
         Section::Addons => vec![Block::Addons],
         Section::Focus => {
@@ -515,7 +507,6 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
             }
             vec![Block::Group(None, rows), Block::Note("Services and keys are on the AI tab.")]
         }
-        Section::Oyenza => vec![Block::Account],
         Section::About => vec![
             Block::Version,
             Block::Group(
@@ -1156,7 +1147,6 @@ fn block_h(st: &AppState, b: &Block) -> f32 {
             }
         }
         Block::Themes => GROUP_TITLE_H + THEME_CARD_H,
-        Block::Account => 72.0,
         Block::Addons => crate::pages::addons::height(st),
         Block::Note(_) => 18.0,
     }
@@ -1202,12 +1192,6 @@ fn draw_block(ui: &mut Ui, st: &mut AppState, b: &Block, bi: usize, at: Rect, vi
         }
         Block::Version => draw_version(ui, st, r, view, sf),
         Block::Themes => draw_themes(ui, st, r, view, sf, m),
-        Block::Account => {
-            fill_group(ui, r, sf.group);
-            if visible(r, view).is_some_and(|v| v.h >= r.h - 0.5) {
-                crate::pages::settings::draw_account(ui, st, r.inset(ROW_PAD, 14.0));
-            }
-        }
         Block::Addons => crate::pages::addons::draw(ui, st, r),
         Block::Note(t) => ui.c.text(t, Rect::new(r.x + 2.0, r.y, r.w, r.h), &TextStyle::footnote().color(palette::TEXT_FAINT)),
     }

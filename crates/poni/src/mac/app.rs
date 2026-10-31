@@ -12,8 +12,8 @@
 
 use crate::activities::{self, Mode};
 use crate::clock;
-use crate::commands::{Command, MediaCmd, OyenzaCmd, Sound, UsageCmd};
-use crate::events::{AppEvent, EventSink, OyenzaEvent};
+use crate::commands::{Command, MediaCmd, Sound, UsageCmd};
+use crate::events::{AppEvent, EventSink};
 use crate::gfx::{scale_about, union_rect, Canvas, Gfx, Matrix3x2};
 use crate::glass;
 use crate::icons::Icon;
@@ -29,7 +29,7 @@ use crate::settings_host;
 use crate::settings_window::{self, Section};
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{
-    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PrayerState,
+    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, PrayerState,
     VolumeState,
 };
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
@@ -46,7 +46,6 @@ use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES, SYSTEM};
 use poni_core::frametime::MotionStats;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::look::{Look, Material};
-use poni_core::oyenza;
 use poni_core::prayer::{Due, PlaceList, Prayer, PrayerMoment};
 use poni_core::settings::{IdleStyle, PrayerSound, Settings, Theme};
 use poni_core::sysmon::{CoreKind, Module};
@@ -462,13 +461,6 @@ pub struct App {
     /// A full-screen app is in front and Hide is picked: the island is closed
     /// and draws nothing until it's back (`apply_fullscreen`).
     fullscreen_hidden: bool,
-    /// Oyenza sign-in's worker: from the start when this Mac is signed in (or
-    /// a sign-out still has to reach the server), else from the first sign-in.
-    oyenza: Option<services::oyenza::OyenzaService>,
-    /// The Oyenza page is on screen: its day list stays live (`services::oyenza`).
-    oyenza_watch: bool,
-    /// The Today page is on screen: the worker asks for the day (`services::oyenza`).
-    today_watch: bool,
     /// The Notes or Add-ons page is on screen (it asks whether the account
     /// has Studio Pro as it opens).
     pro_shown: bool,
@@ -488,13 +480,6 @@ pub struct App {
     lyrics: Option<services::lyrics::LyricsService>,
     /// The add-ons' downloader: only while an add-on is switched on.
     addons: Option<services::addons::AddonService>,
-    /// The Notes page's meeting while it is recorded (only then).
-    notes_rec: Option<services::notes::Recording>,
-    /// The meeting's audio once stopped, kept until its notes are saved (or
-    /// it is thrown away), for Try again.
-    notes_take: Option<services::notes::Take>,
-    /// When the meeting being taken down began (local time, for its notes).
-    notes_started: poni_core::datetime::LocalDateTime,
     /// The AI tab's worker: started the first time the tab opens or its
     /// notices are on (`set_usage_watch`).
     usage: Option<services::usage::UsageService>,
@@ -522,12 +507,8 @@ pub struct App {
     smoke_devices: Option<(u32, Result<(), i32>)>,
     /// The smoke run's full-screen window (a second copy of the app).
     smoke_full_screen: Option<std::process::Child>,
-    /// The Oyenza step's POST through the Mac's HTTP client: (arrived and answered, what happened).
-    smoke_post: Option<(bool, String)>,
     /// Meeting notes' recording step: the recording (or why none), then
     /// what stopping it gave.
-    smoke_notes: Option<Result<(services::notes::Recording, bool, bool), poni_core::notes::CaptureIssue>>,
-    smoke_notes_stop: Option<(bool, String)>,
     /// The island floated on the last frame (Pill letting go of the notch).
     was_floating: bool,
     /// The port Oyenza Studio Recorder writes to (`services::recorder`).
@@ -606,9 +587,6 @@ impl App {
             away: (false, false),
             front_full_screen: false,
             fullscreen_hidden: false,
-            oyenza: None,
-            oyenza_watch: false,
-            today_watch: false,
             pro_shown: false,
             drag_hover: false,
             menu_open: false,
@@ -618,9 +596,6 @@ impl App {
             media: None,
             lyrics: None,
             addons: None,
-            notes_rec: None,
-            notes_take: None,
-            notes_started: Default::default(),
             usage: None,
             usage_watch: services::usage::Watch::default(),
             updater: None,
@@ -636,9 +611,6 @@ impl App {
             smoke_point: None,
             smoke_devices: None,
             smoke_full_screen: None,
-            smoke_post: None,
-            smoke_notes: None,
-            smoke_notes_stop: None,
             was_floating: false,
             rec_port: None,
             rec_alive_at: 0.0,
@@ -655,7 +627,7 @@ impl App {
             self.updater = Some(crate::updates::Updater::start(paths::data_dir().join("update.json"), &mut self.st, crate::updates::unix_now()));
         }
         let line = crate::updates::menu_line(&self.st, self.updater.is_some());
-        self.menubar = Some(MenuBar::add(self.mtm, &self.st.settings, self.st.pinned, services::login::status(), &self.st.oyenza.link, line));
+        self.menubar = Some(MenuBar::add(self.mtm, &self.st.settings, self.st.pinned, services::login::status(), line));
         self.st.power = services::power::query();
         services::power::watch(self.sink.clone());
         services::audio::start(self.sink.clone());
@@ -668,10 +640,6 @@ impl App {
             }
         };
         self.sync_addons();
-        // A meeting the app closed on, waiting to be written up.
-        if self.st.notes_on() && self.smoke.is_none() {
-            self.notes_restore();
-        }
         self.schedule_update();
         self.fetch_setup();
         // Oyenza Studio Recorder installed: the Record tab can show (one
@@ -691,11 +659,6 @@ impl App {
         self.schedule_minute_timer();
         services::sysmon::watch_away(self.mtm, self.sink.clone());
         services::fullscreen::watch(self.mtm, self.sink.clone());
-        // Signed in to Oyenza (or a sign-out still to tell it): the worker says
-        // who, then asks at its pace. Never signed in: nothing starts.
-        if paths::oyenza_link_path().exists() || paths::oyenza_revoke_path().exists() {
-            self.start_oyenza();
-        }
         if self.st.settings.system_history_on() {
             self.start_sysmon();
         }
@@ -972,11 +935,6 @@ impl App {
         if !before.prayer.follow_location && self.st.settings.prayer.follow_location && self.st.prayer_on() {
             self.locate();
         }
-        // Meeting notes off: a recording stops and its audio goes.
-        let notes_id = poni_core::addons::MEETING_NOTES.id;
-        if before.addon_on(notes_id) && !self.st.settings.addon_on(notes_id) {
-            self.notes_off();
-        }
         // An add-on switched on downloads its files; off deletes them.
         let mut addons_changed = false;
         for a in pages::addons::OFFERED {
@@ -999,21 +957,17 @@ impl App {
     /// Hand the add-on switches to the downloader, starting it when one is
     /// on. It checks the files of the ones on (downloading what's missing),
     /// deletes those of one switched off, and sleeps in between; with none
-    /// on, it isn't started (see `AppEvent::Addon` for its end). A Studio Pro
-    /// add-on's files (the Downloader's tools) wait for Pro (`pro_changed`).
+    /// on, it isn't started (see `AppEvent::Addon` for its end).
     fn sync_addons(&mut self) {
         let on: Vec<&'static str> = pages::addons::OFFERED.iter().filter(|a| a.downloads() && self.st.settings.addon_on(a.id)).map(|a| a.id).collect();
-        let pro = self.st.studio_pro() == Some(true);
         match &self.addons {
             Some(svc) => {
                 for a in pages::addons::OFFERED {
                     svc.set(a.id, on.contains(&a.id));
                 }
-                svc.set_pro(pro);
             }
             None if !on.is_empty() => match services::addons::AddonService::start(self.sink.clone(), on) {
                 Ok(svc) => {
-                    svc.set_pro(pro);
                     self.addons = Some(svc);
                 }
                 Err(e) => pwarn!("add-ons: unavailable ({e})"),
@@ -1049,10 +1003,6 @@ impl App {
                 self.st.ui.autostart = Some(services::login::status() == Login::On);
                 pinfo!("settings window: open");
             }
-        }
-        // Add-ons lists Meeting notes by the account's Pro, as its tab does.
-        if self.settings_ui.as_ref().is_some_and(|s| s.view.section == Section::Addons) {
-            self.oyenza(OyenzaCmd::CheckPro);
         }
         self.pending.push(Deferred::ShowSettings);
     }
@@ -1090,9 +1040,6 @@ impl App {
         }
         if out.again {
             settings_host::redraw();
-        }
-        if after != before && after == Section::Addons {
-            self.oyenza(OyenzaCmd::CheckPro);
         }
         if !self.st.cmds.is_empty() {
             self.request_frame();
@@ -1182,11 +1129,6 @@ impl App {
             MenuCmd::AppleMusicToken => self.use_apple_music_token(),
             MenuCmd::AppleMusicHelp => services::open(APPLE_MUSIC_HELP_URL),
             MenuCmd::AppleMusicForget => self.forget_apple_music_token(),
-            MenuCmd::OyenzaSignIn => self.oyenza(OyenzaCmd::SignIn),
-            MenuCmd::OyenzaCancel => self.oyenza(OyenzaCmd::Cancel),
-            MenuCmd::OyenzaDisconnect => self.oyenza(OyenzaCmd::Disconnect),
-            MenuCmd::OyenzaOpen => services::open(oyenza::WEB),
-            MenuCmd::ToggleOyenzaAmounts => s.oyenza_show_amounts = !s.oyenza_show_amounts,
             MenuCmd::ToggleLogin => self.toggle_login(),
             MenuCmd::OpenSettings => {
                 if !paths::settings_path().exists() {
@@ -1235,7 +1177,7 @@ impl App {
         let login = services::login::status();
         let line = crate::updates::menu_line(&self.st, self.updater.is_some());
         if let Some(m) = self.menubar.as_mut() {
-            m.refresh(self.mtm, &self.st.settings, self.st.pinned, login, &self.st.oyenza.link, line);
+            m.refresh(self.mtm, &self.st.settings, self.st.pinned, login, line);
         }
     }
 
@@ -1486,7 +1428,6 @@ impl App {
             // Back: a read of the update file that came due meanwhile.
             self.update_due();
         }
-        self.tell_oyenza_activity();
         self.set_usage_watch();
         self.apply_fullscreen();
     }
@@ -1497,8 +1438,8 @@ impl App {
     fn apply_fullscreen(&mut self) {
         let away = self.away.0 || self.away.1;
         let hide = self.front_full_screen && !away && self.st.settings.hide_in_fullscreen;
-        // Money and bill notices held back wait for the full-screen app to leave.
-        if !hide && !self.front_full_screen && self.st.oyenza.held.is_some() {
+        // Notices held back wait for the full-screen app to leave.
+        if !hide && !self.front_full_screen && self.st.held.is_some() {
             self.show_held_notice(clock::mono());
             self.request_frame();
         }
@@ -1528,7 +1469,7 @@ impl App {
         self.st.now = now;
         let media_before = matches!(ev, AppEvent::Media(_) | AppEvent::MediaTimeline { .. }).then(|| self.media_snapshot());
         // What the Settings window shows that a service reports.
-        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Oyenza(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_));
+        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_));
         if let Some(s) = self.settings_ui.as_mut().filter(|_| shown) {
             s.view.dirty = true;
         }
@@ -1608,8 +1549,7 @@ impl App {
             AppEvent::Power(p) => {
                 let old = self.st.power;
                 self.st.power = p;
-                self.tell_oyenza_activity();
-                self.set_usage_watch();
+                        self.set_usage_watch();
                 if old.saver && !p.saver {
                     self.update_due();
                 }
@@ -1668,8 +1608,6 @@ impl App {
             AppEvent::ScreensAsleep(on) => self.set_away(Some(on), None),
             AppEvent::Locked(on) => self.set_away(None, Some(on)),
             AppEvent::Addon { id, status } => self.on_addon(id, status),
-            AppEvent::Notes(reply) => self.notes_reply(*reply),
-            AppEvent::NotesStopped(issue) => self.notes_stopped(issue),
             AppEvent::Update(services::update::UpdateEvent::Checked(r)) => {
                 let open = self.updater.as_mut().is_some_and(|u| u.checked(&mut self.st, r, crate::updates::unix_now()));
                 self.schedule_update();
@@ -1703,7 +1641,6 @@ impl App {
                 self.front_full_screen = on;
                 self.apply_fullscreen();
             }
-            AppEvent::Oyenza(ev) => self.on_oyenza(ev),
         }
         if let Some(before) = media_before {
             self.after_media_change(before, now);
@@ -2441,8 +2378,6 @@ impl App {
             }
             self.set_stats(false);
             self.set_sysmon(false);
-            // Oyen arrives in his tab again at the next opening.
-            self.st.ui.oyen_tab = None;
             // Settings closes with the island: it opens again on the page it was opened from.
             if self.st.page == PageKind::Settings {
                 self.st.page = self.st.ui.before_settings.take().filter(|p| pages::tabs(&self.st).contains(p)).unwrap_or_else(|| pages::first_tab(&self.st));
@@ -2535,8 +2470,9 @@ impl App {
             return;
         }
         if a == InlineAction::ShowAmount {
-            // The sum and sender take the subtitle's place for a few seconds.
-            let until = st.now + poni_core::oyenza::SHOWN_S;
+            // The sum and sender take the subtitle's place for a few seconds; the
+            // pill turns into a check (activities.rs inline_done).
+            let until = st.now + crate::state::SHOWN_S;
             if let Some(n) = st.notice.as_mut() {
                 if let Some(text) = n.reveal.take() {
                     n.subtitle = text;
@@ -2657,13 +2593,11 @@ impl App {
                     self.st.ui.autostart = Some(services::login::status() == Login::On);
                     self.refresh_menu();
                 }
-                Command::Oyenza(c) => self.oyenza(c),
                 Command::GetCities(file) => services::cities::fetch(file, self.sink.clone()),
                 // Notifications is a Windows add-on: a Mac can't read other apps' notifications.
                 Command::Notify(_) => {}
                 Command::OpenSettings => self.show_settings(),
                 Command::Usage(c) => self.usage_cmd(c),
-                Command::Notes(c) => self.notes_cmd(c),
             }
         }
     }
@@ -2755,268 +2689,13 @@ impl App {
         }
     }
 
-    // ------------------------------------------------------------ Oyenza
-
-    /// How the Oyenza worker should pace itself: in use (unlocked, displays
-    /// awake) and the power source.
-    fn oyenza_activity(&self) -> services::oyenza::Activity {
-        let p = self.st.power;
-        services::oyenza::Activity {
-            in_use: !self.away.0 && !self.away.1,
-            on_ac: p.on_ac || !p.has_battery,
-            saver: p.saver,
-            watching: self.oyenza_watch,
-            today: self.today_watch,
-        }
-    }
-
-    /// The Oyenza page came on screen or went: the worker keeps its list live only meanwhile.
-    fn set_oyenza_watch(&mut self, on: bool) {
-        if on != self.oyenza_watch {
-            self.oyenza_watch = on;
-            self.tell_oyenza_activity();
-        }
-    }
-
-    /// The Today page came on screen or went: the worker asks for the day only meanwhile.
-    fn set_today_watch(&mut self, on: bool) {
-        if on != self.today_watch {
-            self.today_watch = on;
-            self.tell_oyenza_activity();
-        }
-    }
-
-    /// The Notes or Add-ons page came on screen: whether the account has
-    /// Studio Pro, now (unless just asked). Never signed in: nothing starts.
-    fn set_pro_shown(&mut self, on: bool) {
-        if on != self.pro_shown {
-            self.pro_shown = on;
-            if let (true, Some(o)) = (on, &self.oyenza) {
-                o.send(OyenzaCmd::CheckPro);
-            }
-        }
-    }
-
-    fn tell_oyenza_activity(&self) {
-        if let Some(o) = &self.oyenza {
-            o.set_activity(self.oyenza_activity());
-        }
-    }
-
-    fn start_oyenza(&mut self) {
-        match services::oyenza::OyenzaService::start(self.sink.clone(), self.oyenza_activity()) {
-            Ok(o) => self.oyenza = Some(o),
-            Err(e) => pwarn!("oyenza: unavailable ({e})"),
-        }
-    }
-
-    /// A sign-in, cancel, disconnect, note or undo for the worker (started by the first one).
-    fn oyenza(&mut self, c: OyenzaCmd) {
-        if self.oyenza.is_none() {
-            self.start_oyenza();
-        }
-        if let Some(o) = &self.oyenza {
-            o.send(c);
-        }
-    }
-
-    fn on_oyenza(&mut self, ev: OyenzaEvent) {
-        let now = self.st.now;
-        let link_before = self.st.oyenza.link.clone();
-        let pro_before = self.st.studio_pro() == Some(true);
-        match ev {
-            OyenzaEvent::Restored { account } => {
-                self.st.oyenza.link = OyenzaLink::Connected { account };
-                self.ask_pro();
-            }
-            OyenzaEvent::Connecting { code, url, expires_in_s } => {
-                self.st.oyenza.link = OyenzaLink::Connecting { code, url, until: now + expires_in_s as f64 };
-                // Keep the code on screen while the person goes to oyenza.app.
-                if self.st.oyenza.pinned_before.is_none() {
-                    self.st.oyenza.pinned_before = Some(self.st.pinned);
-                }
-                self.st.pinned = true;
-                self.set_page(PageKind::Oyenza);
-                self.expand();
-            }
-            OyenzaEvent::Connected { account } => {
-                self.end_sign_in();
-                self.st.notify(Icon::Check, palette::GREEN, "Connected to Oyenza", format!("as {account}"), 6.0, Some(NoticeAction::OpenPage(PageKind::Oyenza)));
-                self.st.oyenza.link = OyenzaLink::Connected { account };
-                self.ask_pro();
-                // Signed in from the Today page: back to it, where the day comes in.
-                if std::mem::take(&mut self.st.oyenza.from_today) {
-                    self.st.page = PageKind::Today;
-                    self.expand();
-                }
-            }
-            OyenzaEvent::ConnectFailed(code) => {
-                self.st.oyenza.from_today = false;
-                self.end_sign_in();
-                self.st.oyenza.link = OyenzaLink::Off;
-                let (title, subtitle) = oyenza::connect_failure_text(&code);
-                self.st.notify(Icon::Unlink, palette::ORANGE, title, subtitle, 6.0, None);
-            }
-            OyenzaEvent::ConnectCancelled => {
-                self.st.oyenza.from_today = false;
-                self.end_sign_in();
-                self.st.oyenza.link = OyenzaLink::Off;
-            }
-            OyenzaEvent::Money { arrived } => {
-                let o = &mut self.st.oyenza;
-                o.updated_unix = Some(self.st.unix);
-                let fresh = oyenza::unseen(&mut o.shown, &arrived);
-                if let Some(n) = oyenza::money_notice(&fresh) {
-                    let (icon, color) = match n.flow {
-                        Some(oyenza::Flow::In) => (Icon::MoneyIn, palette::GREEN),
-                        Some(oyenza::Flow::Out) => (Icon::MoneyOut, palette::BLUE),
-                        _ => (Icon::Wallet, palette::BLUE),
-                    };
-                    self.oyenza_notice(icon, color, n.title, n.shown, Some(n.hidden));
-                }
-            }
-            OyenzaEvent::Activity(a) => {
-                let o = &mut self.st.oyenza;
-                o.seen.note(&a.days, now);
-                o.activity = Some(a);
-                o.updated_unix = Some(self.st.unix);
-            }
-            OyenzaEvent::ActivityChecked => self.st.oyenza.updated_unix = Some(self.st.unix),
-            OyenzaEvent::Bills { today, bills } => {
-                let day = if today.is_empty() { self.st.day_key() } else { today };
-                self.st.oyenza.bills = bills;
-                self.st.oyenza.bills_today = day.clone();
-                self.st.oyenza.updated_unix = Some(self.st.unix);
-                self.remind_bills(&day);
-            }
-            OyenzaEvent::Day(day) => {
-                let o = &mut self.st.oyenza;
-                o.agenda = Some(day);
-                o.agenda_unix = Some(self.st.unix);
-                o.agenda_state = crate::state::AgendaState::Ready;
-            }
-            OyenzaEvent::DayUnavailable => {
-                self.st.oyenza.agenda = None;
-                self.st.oyenza.agenda_state = crate::state::AgendaState::Unavailable;
-            }
-            OyenzaEvent::DayFailed => self.st.oyenza.agenda_state = crate::state::AgendaState::Failed,
-            OyenzaEvent::Pro(pro) => self.st.oyenza.pro = Some(pro),
-            OyenzaEvent::NoteSaved(saved) => {
-                let o = &mut self.st.oyenza;
-                o.saving = false;
-                o.input.clear();
-                o.error = None;
-                o.saved = Some((saved, now + oyenza::UNDO_S));
-            }
-            OyenzaEvent::NoteFailed { text, code } => {
-                let o = &mut self.st.oyenza;
-                o.saving = false;
-                if o.input.trim().is_empty() {
-                    o.input = text;
-                }
-                o.error = Some(oyenza::note_error_text(&code).into());
-            }
-            OyenzaEvent::Undone => self.st.oyenza.flash = Some(("Taken back".into(), now + 3.0)),
-            OyenzaEvent::UndoFailed(code) => {
-                let line = if code == "too_late" { "Too late to undo here. Change it in oyenza.app" } else { "Couldn't undo. Change it in oyenza.app" };
-                self.st.oyenza.flash = Some((line.into(), now + 5.0));
-            }
-            OyenzaEvent::Disconnected { by_server } => {
-                self.end_sign_in();
-                self.st.oyenza = crate::state::OyenzaState::default();
-                let (title, subtitle) =
-                    if by_server { ("Oyenza disconnected", "Sign in again in Settings") } else { ("Disconnected from Oyenza", "Sign in again any time in Settings") };
-                self.st.notify(Icon::Unlink, palette::TEXT_DIM, title, subtitle, 6.0, None);
-            }
-        }
-        // The Oyenza tab came or went: the menu changes with it, and the
-        // window makes room for its page (or no longer has to).
-        if self.st.oyenza.link != link_before {
-            self.refresh_menu();
-            self.layout_surface();
-        }
-        if (self.st.studio_pro() == Some(true)) != pro_before {
-            self.pro_changed();
-        }
-    }
-
-    /// Signed in (at start, or just now) with Meeting notes switched on:
-    /// whether the account has Studio Pro, now, so its page doesn't wait for
-    /// the Add-ons page to open (`pages::addons::pro_wanted`).
-    fn ask_pro(&self) {
-        if let (true, Some(o)) = (pages::addons::pro_wanted(&self.st), &self.oyenza) {
-            o.send(OyenzaCmd::CheckPro);
-        }
-    }
-
-    /// Studio Pro came, or went (the server's word, or signing out): the
-    /// add-ons' files that wait for Pro come or go (`AddonService::set_pro`).
-    fn pro_changed(&mut self) {
-        let pro = self.st.studio_pro() == Some(true);
-        if let Some(a) = self.addons.as_ref() {
-            a.set_pro(pro);
-        }
-    }
-
-    /// The code is gone (signed in, refused, cancelled): the island stops
-    /// staying open for it.
-    fn end_sign_in(&mut self) {
-        if let Some(p) = self.st.oyenza.pinned_before.take() {
-            self.st.pinned = p;
-            if !p {
-                self.maybe_schedule_collapse();
-            }
-        }
-    }
-
-    /// A money or bill notice. Its sum waits for Show unless the menu's
-    /// "Show amounts on the island" is on (`hidden` None: nothing to hide).
-    /// While a full-screen app hides the island it waits, and shows when the
-    /// island is back if it isn't old by then.
-    fn oyenza_notice(&mut self, icon: Icon, color: Color, title: String, shown: String, hidden: Option<String>) {
-        let now = self.st.now;
-        let hide = hidden.is_some() && !self.st.settings.oyenza_show_amounts;
-        let notice = Notice {
-            icon,
-            color,
-            title,
-            title_dim: String::new(),
-            subtitle: if hide { hidden.unwrap_or_default() } else { shown.clone() },
-            until: now + oyenza::NOTICE_S,
-            action: Some(NoticeAction::OpenPage(PageKind::Oyenza)),
-            inline: hide.then_some(InlineAction::ShowAmount),
-            reveal: hide.then_some(shown),
-        };
-        if self.fullscreen_hidden {
-            self.st.oyenza.held = Some((notice, now));
-        } else {
-            self.st.notice = Some(notice);
-        }
-    }
-
     fn show_held_notice(&mut self, now: f64) {
-        if let Some((mut n, at)) = self.st.oyenza.held.take() {
-            if now - at <= oyenza::HELD_MAX_S {
-                n.until = now + oyenza::NOTICE_S;
+        if let Some((mut n, at)) = self.st.held.take() {
+            if now - at <= crate::state::HELD_MAX_S {
+                n.until = now + crate::state::NOTICE_S;
                 self.st.notice = Some(n);
             }
         }
-    }
-
-    /// One reminder per bill, the day before it (or on the day, if the Mac was
-    /// off), from the morning on; the rest come with the next look.
-    fn remind_bills(&mut self, today: &str) {
-        let st = &mut self.st;
-        oyenza::prune_noticed(&mut st.store.oyenza_noticed, today);
-        if st.local.hour < oyenza::BILL_HOUR {
-            return;
-        }
-        let Some(b) = oyenza::bills_to_remind(&st.oyenza.bills, today, &st.store.oyenza_noticed).first().map(|b| (*b).clone()) else { return };
-        st.store.oyenza_noticed.push(oyenza::notice_key(&b));
-        st.save();
-        let (shown, hidden) = oyenza::bill_subtitles(&b);
-        let icon = if b.is_card() { Icon::Card } else { Icon::Calendar };
-        self.oyenza_notice(icon, palette::ORANGE, oyenza::bill_title(&b, today), shown, hidden);
     }
 
     /// A reading is under way (Script page only): the island stays open.
@@ -3074,14 +2753,12 @@ impl App {
         }
         self.script_held = held;
         self.prayer_tick();
-        self.notes_tick();
         self.check_recorder_alive(false);
         // Prayer times, System or Screen recorder switched off: its tab is gone.
         let gone = match self.st.page {
             PageKind::Prayer => !self.st.prayer_on(),
             PageKind::System => !self.st.system_on(),
             PageKind::Record => !self.st.record_on(),
-            PageKind::Notes => !self.st.notes_on(),
             _ => false,
         };
         if gone {
@@ -3137,12 +2814,9 @@ impl App {
             dt = dt.min(period);
         }
         let dt = dt.clamp(0.0, 0.05) as f32;
-        // Today's tiles need the readings only while they show (signed out it has the sign-in card, signed in the day).
+        // Today's tiles need the readings only while they show .
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today) && pages::today::shows_tiles(&self.st));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
-        self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
-        self.set_today_watch(self.mode == Mode::Expanded(PageKind::Today));
-        self.set_pro_shown(matches!(self.mode, Mode::Expanded(PageKind::Notes | PageKind::Addons)));
         self.set_usage_watch();
         // The Pill theme floats the island below the top edge (below the menu
         // bar for what hangs under a notch).
@@ -3645,51 +3319,6 @@ impl App {
                     let _ = c.wait();
                 }
             }
-            // Oyenza sign-in: its worker starts (this home has no key, so it
-            // asks nothing), one POST goes through the Mac's HTTP client the
-            // way signing in sends it, then the island follows what the worker
-            // would report: a code, a week on the page, money in, signing out.
-            "oyenza-post" => {
-                self.st.notice = None;
-                self.collapse();
-                self.start_oyenza();
-                self.smoke_post = Some(smoke_post());
-            }
-            "oyenza-code" => {
-                let url = "https://oyenza.app/connect?code=KPJX-TMNQ".to_string();
-                self.on_oyenza(OyenzaEvent::Connecting { code: "KPJX-TMNQ".into(), url, expires_in_s: 600 });
-            }
-            "oyenza-page" => {
-                let fake = crate::render::fake_oyenza(&self.st, false);
-                self.on_oyenza(OyenzaEvent::Connected { account: "a\u{2022}\u{2022}\u{2022}@example.com".into() });
-                if let Some(a) = fake.activity {
-                    self.on_oyenza(OyenzaEvent::Activity(a));
-                }
-                self.on_oyenza(OyenzaEvent::Bills { today: fake.bills_today, bills: fake.bills });
-                self.st.notice = None;
-                self.set_page(PageKind::Oyenza);
-                self.expand();
-            }
-            "oyenza-money" => {
-                self.collapse();
-                let wallet = Some(poni_core::oyenza::WalletRef { name: "BCA".into(), color: "#0060AF".into() });
-                let arrived = vec![poni_core::oyenza::Arrival {
-                    id: "smoke-1".into(),
-                    kind: "income".into(),
-                    amount: 1_250_000.0,
-                    currency: "IDR".into(),
-                    text: "Rp 1.250.000".into(),
-                    title: "Gaji Oktober".into(),
-                    wallet,
-                    at: String::new(),
-                }];
-                self.on_oyenza(OyenzaEvent::Money { arrived });
-            }
-            "oyenza-off" => {
-                self.st.notice = None;
-                self.on_oyenza(OyenzaEvent::Disconnected { by_server: false });
-                self.oyenza = None;
-            }
             // The AI tab (its worker never starts in the smoke run: nothing
             // of this Mac is read), then its keychain reader on test items.
             "ai-page" => {
@@ -3846,14 +3475,6 @@ impl App {
                 settings_host::redraw();
             }
             "settings-window-closed" => self.pending.push(Deferred::CloseSettings),
-            // Meeting notes' recording (services::notes with capture.rs): the
-            // microphone and the Mac's own sound through a Core Audio tap, for
-            // two seconds, whatever this Mac allows; the stop step follows.
-            "notes-capture" => {
-                let started = self.st.local;
-                self.smoke_notes = Some(services::notes::Recording::start(&paths::notes_audio_dir(), &started, &self.sink));
-            }
-            "notes-capture-stop" => self.smoke_notes_stop = Some(self.smoke_notes_stopped()),
             "menu" => {
                 // The pointer from notch-pill-ear leaves.
                 self.leave();
@@ -3904,14 +3525,10 @@ impl App {
             "fullscreen-hide" => self.fullscreen_hidden || waited > 12.0,
             "fullscreen-stay" => (!self.fullscreen_hidden && window::is_shown() && waited > 1.0) || waited > 6.0,
             "fullscreen-back" => (!self.front_full_screen && !self.fullscreen_hidden && window::is_shown() && waited > 1.0) || waited > 8.0,
-            "oyenza-code" | "oyenza-page" => (self.expanded && self.st.page == PageKind::Oyenza && waited > 0.6) || waited > 4.0,
-            "oyenza-money" => self.st.notice.is_some() || waited > 4.0,
             "ai-page" | "ai-back" => (self.expanded && self.st.page == PageKind::Ai && waited > 0.6) || waited > 4.0,
             "now-playing" => self.st.media.as_ref().is_some_and(|m| m.title == SMOKE_SERVICE_TRACK) || std::env::var_os("PONI_SMOKE_NOW_PLAYING").is_none() || waited > 15.0,
             "now-playing-browser" => self.st.media.as_ref().is_some_and(|m| m.title == SMOKE_BROWSER_TRACK) || std::env::var_os("PONI_SMOKE_BROWSER").is_none() || waited > 25.0,
             "menu" => waited > 1.0,
-            // Two seconds of a meeting.
-            "notes-capture" => waited > 2.0,
             "settings-window" | "settings-window-light" => (settings_host::is_open() && waited > 0.8) || waited > 5.0,
             "settings-window-closed" => !settings_host::is_open() || waited > 3.0,
             "record-check" => self.mode == Mode::Activity(activities::Activity::Recording) || waited > 5.0,
@@ -4246,26 +3863,6 @@ impl App {
                 let ok = !self.front_full_screen && !self.fullscreen_hidden && window::is_shown();
                 Some(("fullscreen-back", ok, format!("full-screen app in front: {}; island on the screen: {}", self.front_full_screen, window::is_shown())))
             }
-            "oyenza-post" => {
-                let (ok, d) = self.smoke_post.clone().unwrap_or((false, "not run".into()));
-                Some(("oyenza-post", ok && self.oyenza.is_some(), format!("worker {}; {d}", if self.oyenza.is_some() { "running" } else { "not started" })))
-            }
-            "oyenza-code" => {
-                let code = matches!(&self.st.oyenza.link, OyenzaLink::Connecting { code, .. } if code == "KPJX-TMNQ");
-                let ok = code && self.st.pinned && self.st.page == PageKind::Oyenza && pages::tabs(&self.st).contains(&PageKind::Oyenza);
-                Some(("oyenza-code", ok, format!("code shown: {code}; island kept open: {}; page {:?}", self.st.pinned, self.st.page)))
-            }
-            "oyenza-page" => {
-                let o = &self.st.oyenza;
-                let rows = o.activity.as_ref().map_or(0, |a| a.days.iter().map(|d| d.rows.len()).sum::<usize>());
-                let ok = matches!(o.link, OyenzaLink::Connected { .. }) && rows > 0 && !o.bills.is_empty() && self.st.oyenza.pinned_before.is_none();
-                Some(("oyenza-page", ok, format!("{:?}; {rows} transactions, {} bills; island no longer held open: {}", o.link, o.bills.len(), o.pinned_before.is_none())))
-            }
-            "oyenza-money" => {
-                let n = self.st.notice.as_ref();
-                let ok = n.is_some_and(|n| n.title == "Money in \u{b7} BCA" && n.inline == Some(InlineAction::ShowAmount) && n.reveal.is_some());
-                Some(("oyenza-money", ok, format!("notice: {:?} / {:?}, sum held back for Show: {}", n.map(|n| &n.title), n.map(|n| &n.subtitle), n.is_some_and(|n| n.reveal.is_some()))))
-            }
             "ai-page" => {
                 let tab = pages::tabs(&self.st).contains(&PageKind::Ai);
                 let asked = services::keychain::asked();
@@ -4300,67 +3897,10 @@ impl App {
                 let (ok, d) = smoke_secret();
                 Some(("secret-backups", ok, d))
             }
-            "oyenza-off" => {
-                // Signed out, the tab stays: it is where to sign in again.
-                let tab = pages::tabs(&self.st).contains(&PageKind::Oyenza);
-                let ok = self.st.oyenza.link == OyenzaLink::Off && tab;
-                Some(("oyenza-off", ok, format!("{:?}; Oyenza tab: {tab}", self.st.oyenza.link)))
-            }
-            "notes-capture-stop" => {
-                let (ok, d) = self.smoke_notes_stop.clone().unwrap_or((false, "not run".into()));
-                Some(("notes-capture", ok, d))
-            }
             _ => None,
         }
     }
 
-    /// Meeting notes' stop step: a recording that started stops into WAV
-    /// parts of 16 kHz mono; one that couldn't start says why. Either is
-    /// fine on a runner (no microphone, nobody to answer macOS's questions);
-    /// what fails is a crash, a hang, or parts in the wrong format.
-    fn smoke_notes_stopped(&mut self) -> (bool, String) {
-        match self.smoke_notes.take() {
-            Some(Ok((rec, mic, pc))) => {
-                let (lm, lp) = rec.levels();
-                match rec.stop() {
-                    Ok(take) => {
-                        let formats: Vec<_> = take.parts.iter().map(|p| smoke_wav_format(p).map(|(r, c, b, _, n)| (r, c, b, n))).collect();
-                        let ok = formats.iter().all(|f| matches!(f, Some((16_000, 1, 16, _))));
-                        let _ = std::fs::remove_dir_all(&take.dir);
-                        (ok, format!("microphone {mic}, the Mac's sound {pc}; levels {lm:.3}/{lp:.3}; {:.2} s in {} part(s) {formats:?}", take.secs, take.parts.len()))
-                    }
-                    Err(issue) => (true, format!("microphone {mic}, the Mac's sound {pc}; stop gave {issue:?}")),
-                }
-            }
-            // No microphone, or macOS saying no, is the runner's business; a
-            // recording that fails to start (a source hanging) is ours.
-            Some(Err(issue)) => (issue != poni_core::notes::CaptureIssue::Failed, format!("no recording: {issue:?}")),
-            None => (false, "Recording::start didn't run".into()),
-        }
-    }
-}
-
-/// A WAV file's rate, channels, bits, and where its samples start and how
-/// many bytes they take (chunks such as Apple's FLLR padding skipped).
-fn smoke_wav_format(path: &std::path::Path) -> Option<(u32, u16, u16, usize, usize)> {
-    let b = std::fs::read(path).ok()?;
-    if b.get(0..4)? != b"RIFF" || b.get(8..12)? != b"WAVE" {
-        return None;
-    }
-    let u16_at = |i: usize| Some(u16::from_le_bytes(b.get(i..i + 2)?.try_into().ok()?));
-    let u32_at = |i: usize| Some(u32::from_le_bytes(b.get(i..i + 4)?.try_into().ok()?));
-    let (mut at, mut fmt) = (12, None);
-    while at + 8 <= b.len() {
-        let (id, len) = (&b[at..at + 4], u32_at(at + 4)? as usize);
-        if id == b"fmt " {
-            fmt = Some((u32_at(at + 12)?, u16_at(at + 10)?, u16_at(at + 22)?));
-        } else if id == b"data" {
-            let (rate, channels, bits) = fmt?;
-            return Some((rate, channels, bits, at + 8, len.min(b.len() - at - 8)));
-        }
-        at += 8 + len + (len & 1);
-    }
-    None
 }
 
 /// The keychain items tools/mac-smoke.sh adds for the AI tab's reader: their
@@ -4435,63 +3975,6 @@ fn smoke_secret() -> (bool, String) {
     };
     let ok = attr && verdict != "included" && back.as_deref() == Some("test-key");
     (ok, format!("tmutil: {verdict}; exclusion attribute: {}; read back: {}", if attr { "set" } else { "missing" }, back.is_some()))
-}
-
-/// The smoke test: one POST with a JSON body and a key through the Mac's
-/// HTTP client (what signing in to Oyenza and saving a spend send), to a
-/// listener of its own on this Mac. Whether it arrived whole and its answer
-/// came back, and what happened.
-fn smoke_post() -> (bool, String) {
-    use std::io::{Read, Write};
-    use std::time::{Duration, Instant};
-    let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
-        Ok(l) => l,
-        Err(e) => return (false, format!("no listener ({e})")),
-    };
-    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    let _ = listener.set_nonblocking(true);
-    let server = std::thread::spawn(move || -> String {
-        let deadline = Instant::now() + Duration::from_secs(6);
-        let mut conn = None;
-        while conn.is_none() && Instant::now() < deadline {
-            match listener.accept() {
-                Ok((c, _)) => conn = Some(c),
-                Err(_) => std::thread::sleep(Duration::from_millis(20)),
-            }
-        }
-        let Some(mut c) = conn else { return String::new() };
-        let _ = c.set_nonblocking(false);
-        let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
-        let mut buf = Vec::new();
-        let mut chunk = [0u8; 4096];
-        // The headers, then as much body as Content-Length says.
-        loop {
-            match c.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => buf.extend_from_slice(&chunk[..n]),
-            }
-            let text = String::from_utf8_lossy(&buf).into_owned();
-            if let Some(end) = text.find("\r\n\r\n") {
-                let len = text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
-                if buf.len() >= end + 4 + len {
-                    break;
-                }
-            }
-        }
-        let body = "{\"ok\":true}";
-        let _ = c.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
-        String::from_utf8_lossy(&buf).into_owned()
-    });
-    let json = "{\"app\":\"poni\",\"name\":\"Smoke Mac\"}";
-    let answer = services::http::Client::new("OyenzaStudio smoke").and_then(|c| {
-        c.send(services::http::Method::Post, &format!("http://127.0.0.1:{port}/connect/start"), &[("Authorization", "Bearer oyzd_smoke")], Some(json), Duration::from_secs(5))
-    });
-    let seen = server.join().unwrap_or_default();
-    let arrived = seen.starts_with("POST /connect/start ") && seen.contains("Bearer oyzd_smoke") && seen.to_ascii_lowercase().contains("content-type: application/json") && seen.ends_with(json);
-    match answer {
-        Ok(r) => (arrived && r.status == 200 && r.body.contains("\"ok\":true"), format!("request arrived whole: {arrived}; answer {} {}", r.status, r.body)),
-        Err(e) => (false, format!("request arrived whole: {arrived}; no answer ({e})")),
-    }
 }
 
 /// The song's lyrics failed on LRCLIB's side (busy, slow or down): the
@@ -4663,7 +4146,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 71] = [
+const SMOKE_STEPS: [&str; 64] = [
     "idle",
     "hover",
     "open-focus",
@@ -4711,11 +4194,6 @@ const SMOKE_STEPS: [&str; 71] = [
     "fullscreen-hide",
     "fullscreen-stay",
     "fullscreen-back",
-    "oyenza-post",
-    "oyenza-code",
-    "oyenza-page",
-    "oyenza-money",
-    "oyenza-off",
     "ai-page",
     "ai-keychain",
     "ai-locked",
@@ -4732,8 +4210,6 @@ const SMOKE_STEPS: [&str; 71] = [
     "settings-window",
     "settings-window-light",
     "settings-window-closed",
-    "notes-capture",
-    "notes-capture-stop",
     "menu",
 ];
 /// The track CI announces as Spotify's own notification would.
@@ -4802,7 +4278,3 @@ impl Smoke {
         let _ = std::fs::write(self.dir.join("report.json"), out);
     }
 }
-
-// Meeting notes: the recording and the handing over.
-#[path = "app_notes.rs"]
-mod notes;

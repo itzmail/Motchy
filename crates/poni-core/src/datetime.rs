@@ -133,6 +133,16 @@ pub fn month_grid(year: i32, month: u8) -> [[Option<u8>; 7]; 6] {
     grid
 }
 
+/// Local wall time minus UTC, in minutes, rounded to the quarter hour.
+pub fn offset_minutes(local: &LocalDateTime, unix: i64) -> i32 {
+    let local_s = days_from_civil(local.year, local.month, local.day) * 86_400
+        + local.hour as i64 * 3600
+        + local.minute as i64 * 60
+        + local.second as i64;
+    let raw = (local_s - unix) as f64 / 60.0;
+    ((raw / 15.0).round() * 15.0) as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

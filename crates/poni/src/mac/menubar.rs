@@ -11,7 +11,6 @@ use objc2_app_kit::{
 use objc2_core_foundation::CGFloat;
 use objc2_core_graphics::{CGBlendMode, CGContext};
 use objc2_foundation::{NSObject, NSObjectProtocol, NSSize, NSString};
-use crate::state::OyenzaLink;
 use crate::updates::UpdateLine;
 use poni_core::settings::{IdleStyle, Settings, Theme};
 use std::cell::RefCell;
@@ -33,11 +32,6 @@ pub enum MenuCmd {
     AppleMusicToken,
     AppleMusicHelp,
     AppleMusicForget,
-    OyenzaSignIn,
-    OyenzaCancel,
-    ToggleOyenzaAmounts,
-    OyenzaOpen,
-    OyenzaDisconnect,
     OpenSettings,
     ReloadSettings,
     OpenDataFolder,
@@ -64,7 +58,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 
 /// `update`: a later version the update file offers, or Check for updates…
 /// (`crate::updates::menu_line`).
-pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyenza: &OyenzaLink, update: UpdateLine) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, update: UpdateLine) -> Vec<MenuItem> {
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
     // The theme's own idle looks (the status bar is Pill's), the one it
@@ -93,7 +87,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyen
         MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
         apple_music_menu(),
-        oyenza_menu(s, oyenza),
         item("Sounds", MenuCmd::ToggleSounds, s.sounds),
         MenuItem::Sub { label: "In full-screen apps".into(), items: vec![fullscreen("Hide", true), fullscreen("Stay on top", false)] },
         match login {
@@ -127,23 +120,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyen
         UpdateLine::None => {}
     }
     items
-}
-
-/// Oyenza, optional: sign in with a code from oyenza.app, then what the
-/// island may show, and signing out (as in the Windows tray).
-fn oyenza_menu(s: &Settings, link: &OyenzaLink) -> MenuItem {
-    let items = match link {
-        OyenzaLink::Off => vec![item("Sign in to Oyenza…", MenuCmd::OyenzaSignIn, false)],
-        OyenzaLink::Connecting { .. } => vec![item("Cancel sign-in", MenuCmd::OyenzaCancel, false)],
-        OyenzaLink::Connected { account } => vec![
-            MenuItem::Info { label: format!("Connected as {account}") },
-            item("Show amounts on the island", MenuCmd::ToggleOyenzaAmounts, s.oyenza_show_amounts),
-            item("Open oyenza.app", MenuCmd::OyenzaOpen, false),
-            MenuItem::Separator,
-            item("Disconnect", MenuCmd::OyenzaDisconnect, false),
-        ],
-    };
-    MenuItem::Sub { label: "Oyenza".into(), items }
 }
 
 /// Opt-in lyrics from Apple Music with the person's own token.
@@ -201,7 +177,7 @@ pub struct MenuBar {
 }
 
 impl MenuBar {
-    pub fn add(mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login, oyenza: &OyenzaLink, update: UpdateLine) -> MenuBar {
+    pub fn add(mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login, update: UpdateLine) -> MenuBar {
         let item = NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
         if let Some(button) = item.button(mtm) {
             match mark_image(mtm) {
@@ -211,15 +187,15 @@ impl MenuBar {
             button.setToolTip(Some(&NSString::from_str(&format!("Oyenza Studio {}", crate::version::VERSION))));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
-        let menu = build(mtm, &target, &menu_items(s, pinned, login, crate::services::recorder::installed(), oyenza, update));
+        let menu = build(mtm, &target, &menu_items(s, pinned, login, crate::services::recorder::installed(), update));
         item.setMenu(Some(&menu));
         ITEM.with(|i| *i.borrow_mut() = Some(item.clone()));
         MenuBar { item, target, menu }
     }
 
     /// Rebuild the menu (ticks follow the settings).
-    pub fn refresh(&mut self, mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login, oyenza: &OyenzaLink, update: UpdateLine) {
-        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login, crate::services::recorder::installed(), oyenza, update));
+    pub fn refresh(&mut self, mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login, update: UpdateLine) {
+        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login, crate::services::recorder::installed(), update));
         self.item.setMenu(Some(&self.menu));
     }
 }

@@ -12,8 +12,6 @@ pub mod adzan;
 #[path = "services/audio.rs"]
 pub mod audio;
 // Meeting notes' two sources (the microphone, and the Mac's own sound).
-#[path = "services/capture.rs"]
-pub mod capture;
 #[path = "services/cf.rs"]
 mod cf;
 #[path = "services/clipboard.rs"]
@@ -28,8 +26,6 @@ pub mod keychain;
 pub mod media;
 #[path = "services/mediaremote.rs"]
 mod mediaremote;
-#[path = "services/mic.rs"]
-pub mod mic;
 #[path = "services/secret.rs"]
 pub mod secret;
 #[path = "services/smc.rs"]
@@ -44,14 +40,8 @@ pub mod lyrics;
 // So is the add-ons' downloader: the Mac offers every add-on with it.
 #[path = "../services/addons.rs"]
 pub mod addons;
-// And Meeting notes' recording and handing over (its sources: capture.rs).
-#[path = "../services/notes.rs"]
-pub mod notes;
 #[path = "../services/cities.rs"]
 pub mod cities;
-// And Oyenza sign-in: its key goes through secret.rs above.
-#[path = "../services/oyenza.rs"]
-pub mod oyenza;
 // And the update file's reader, which runs on the add-ons' thread.
 #[path = "../services/update.rs"]
 pub mod update;

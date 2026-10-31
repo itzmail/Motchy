@@ -74,9 +74,6 @@ pub struct Addon {
     /// The release that holds this version of the files.
     pub tag: &'static str,
     pub files: &'static [AddonFile],
-    /// Part of Oyenza Studio Pro: it works only for an Oyenza account the
-    /// server says has Pro (`GET /island/pro`; `AppState::pro`).
-    pub pro: bool,
 }
 
 impl Addon {
@@ -124,7 +121,6 @@ pub const PRAYER_TIMES: Addon = Addon {
         AddonFile { name: "adzan.m4a", size: 1_822_513, sha256: "bd5a9db9d23eb2fb7e3368c33afeb08603b71b762549ba8247491c5aac24cb59", url: None },
         AddonFile { name: "NOTICE.txt", size: 869, sha256: "a1762a46d2ff3c7456070f76fe370e02e169f30ee749fea7763568034401185a", url: None },
     ],
-    pro: false,
 };
 
 /// Script reader: the Script page, a teleprompter under the webcam. Its
@@ -137,7 +133,6 @@ pub const SCRIPT_READER: Addon = Addon {
     mac_blurb: Some("A teleprompter under your webcam."),
     tag: "",
     files: &[],
-    pro: false,
 };
 
 /// System: the System page (the processor, graphics, memory, drives,
@@ -153,7 +148,6 @@ pub const SYSTEM: Addon = Addon {
     mac_blurb: None,
     tag: "",
     files: &[],
-    pro: false,
 };
 
 pub const NOTIFICATIONS: Addon = Addon {
@@ -163,7 +157,6 @@ pub const NOTIFICATIONS: Addon = Addon {
     mac_blurb: None,
     tag: "",
     files: &[],
-    pro: false,
 };
 
 /// Screen recorder: the Record page and the recording pill, the face of
@@ -179,30 +172,10 @@ pub const SCREEN_RECORDER: Addon = Addon {
     mac_blurb: None,
     tag: "",
     files: &[],
-    pro: false,
-};
-
-/// Meeting notes: the Notes page (`crate::notes`). One click and Oyen listens
-/// to the microphone and the computer's own sound (a call in Meet, Zoom,
-/// Teams; on a Mac through a Core Audio tap, macOS 14.2 and later), then the
-/// Oyenza account writes the notes. Its code is in the
-/// app, so there is nothing to download. Off, there is no Notes tab and
-/// nothing of it runs: no recording, no calls. Part of Studio Pro: the page
-/// records only for an account the server says has Pro, and the server
-/// writes notes only for one.
-pub const MEETING_NOTES: Addon = Addon {
-    id: "notes",
-    title: "Meeting notes",
-    blurb: "One click and Oyen listens to your meeting, Meet, Zoom or Teams, and writes the notes.",
-    mac_blurb: None,
-    tag: "",
-    files: &[],
-    pro: true,
 };
 
 /// Every add-on, in the order the Add-ons page lists them.
-pub const ALL: [&Addon; 6] =
-    [&PRAYER_TIMES, &SCRIPT_READER, &SYSTEM, &NOTIFICATIONS, &MEETING_NOTES, &SCREEN_RECORDER];
+pub const ALL: [&Addon; 5] = [&PRAYER_TIMES, &SCRIPT_READER, &SYSTEM, &NOTIFICATIONS, &SCREEN_RECORDER];
 
 /// Where an add-on stands, as the Add-ons page shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,14 +276,8 @@ mod tests {
     }
 
     #[test]
-    fn pro_is_meeting_notes() {
-        let pro: Vec<&str> = ALL.iter().filter(|a| a.pro).map(|a| a.id).collect();
-        assert_eq!(pro, vec!["notes"]);
-    }
-
-    #[test]
     fn built_in_add_ons_are_off_until_switched_on() {
-        for a in [&SYSTEM, &NOTIFICATIONS, &MEETING_NOTES] {
+        for a in [&SYSTEM, &NOTIFICATIONS] {
             assert!(!a.downloads() && a.size() == 0, "{}", a.id);
             assert_eq!(Addon::find(a.id), Some(a));
             assert_eq!(Status::Ready.line(a, false), "On");
@@ -377,7 +344,7 @@ mod tests {
     fn add_ons_are_listed_in_order_each_with_its_own_id() {
         // The Add-ons page's order.
         let ids: Vec<&str> = ALL.iter().map(|a| a.id).collect();
-        assert_eq!(ids, ["sholat", "script", "system", "notifications", "notes", "recorder"]);
+        assert_eq!(ids, ["sholat", "script", "system", "notifications", "recorder"]);
         for (i, a) in ALL.iter().enumerate() {
             // The key in settings.json and the folder's name.
             assert!(!a.id.is_empty() && a.id.bytes().all(|b| b.is_ascii_lowercase()), "{}", a.id);
@@ -405,7 +372,6 @@ mod tests {
                 AddonFile { name: "tool.exe", size: 2_151_363, sha256: "2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77", url: None },
                 AddonFile { name: "NOTICE.txt", size: 0, sha256: "", url: None },
             ],
-            pro: false,
         };
         let tool = SOON.files[0];
         assert!(tool.pinned() && !SOON.files[1].pinned() && !SOON.pinned());
@@ -461,7 +427,6 @@ mod tests {
             mac_blurb: None,
             tag: "addon-big-1",
             files: &[AddonFile { name: "big.exe", size: 30_100_000, sha256: "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d", url: None }],
-            pro: false,
         };
         assert_eq!(fmt_bytes(BIG.size()), "30 MB", "its size on the page while it's off");
         assert_eq!(Status::Downloading { done: 12_345_678, total: BIG.size() }.line(&BIG, false), "Downloading · 12 MB of 30 MB");

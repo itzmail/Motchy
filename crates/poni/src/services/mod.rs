@@ -16,9 +16,6 @@ pub mod imaging;
 pub mod location;
 pub mod lyrics;
 pub mod media;
-pub mod mic;
-pub mod notes;
-pub mod oyenza;
 pub mod netinfo;
 pub mod power;
 pub mod recorder;
@@ -30,7 +27,7 @@ pub mod sysstats;
 pub mod update;
 pub mod usage;
 
-use crate::commands::{MediaCmd, OyenzaCmd, UsageCmd};
+use crate::commands::{MediaCmd, UsageCmd};
 use crate::events::EventSink;
 use crate::state::MediaSession;
 use poni_core::geom::Color;
@@ -43,7 +40,6 @@ pub struct Services {
     _audio: Option<audio::AudioService>,
     _bluetooth: Option<bluetooth::BluetoothService>,
     fullscreen: Option<fullscreen::FullscreenWatcher>,
-    oyenza: Option<oyenza::OyenzaService>,
     addons: Option<addons::AddonService>,
     /// Started the first time the AI tab opens or its notices are on
     /// ([`Services::usage_watch`]).
@@ -65,25 +61,20 @@ fn started<T, E: std::fmt::Display>(name: &str, r: Result<T, E>) -> Option<T> {
 }
 
 impl Services {
-    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, settings: &Settings, activity: oyenza::Activity) -> Self {
+    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, settings: &Settings) -> Self {
         let media = started("media", media::MediaService::start(sink.clone()));
         let lyrics = started("lyrics", lyrics::LyricsService::start(sink.clone()));
         let audio = started("audio", audio::AudioService::start(sink.clone()));
         let bluetooth = started("bluetooth", bluetooth::BluetoothService::start(sink.clone()));
         let fullscreen = started("fullscreen", fullscreen::FullscreenWatcher::start(helper, sink.clone()));
-        // Idle (no calls) until the person signs in to Oyenza from the tray.
-        let oyenza = started("oyenza", oyenza::OyenzaService::start(sink.clone(), activity));
         // Asleep unless an add-on is on; then it only checks the files it has.
-        // A Studio Pro add-on's files wait for Pro (`set_pro`): a filter here
-        // would delete them at every start, before the server's answer, and
-        // fetch them again after it.
         let on = poni_core::addons::ALL
             .iter()
             .filter(|a| settings.addon_on(a.id))
             .map(|a| a.id)
             .collect();
         let addons = started("add-ons", addons::AddonService::start(sink.clone(), on));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, oyenza, addons, usage: std::cell::OnceCell::new(), sink: sink.clone() }
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, addons, usage: std::cell::OnceCell::new(), sink: sink.clone() }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -99,18 +90,9 @@ impl Services {
     }
 
     /// An add-on was switched on (download its files) or off (delete them).
-    /// A Studio Pro add-on's files come only with Pro (`set_pro`).
     pub fn set_addon(&self, id: &'static str, on: bool) {
         if let Some(a) = &self.addons {
             a.set(id, on);
-        }
-    }
-
-    /// Whether the account has Studio Pro: the Pro add-ons' files come with
-    /// it, and stay as they are without it.
-    pub fn set_pro(&self, pro: bool) {
-        if let Some(a) = &self.addons {
-            a.set_pro(pro);
         }
     }
 
@@ -138,19 +120,6 @@ impl Services {
     pub fn request_lyrics(&self, s: &MediaSession) {
         if let Some(l) = &self.lyrics {
             l.request(s);
-        }
-    }
-
-    pub fn oyenza(&self, c: OyenzaCmd) {
-        if let Some(o) = &self.oyenza {
-            o.send(c);
-        }
-    }
-
-    /// The PC's use or power changed (the Oyenza worker paces itself by it).
-    pub fn oyenza_activity(&self, a: oyenza::Activity) {
-        if let Some(o) = &self.oyenza {
-            o.set_activity(a);
         }
     }
 

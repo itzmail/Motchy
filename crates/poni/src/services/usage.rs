@@ -347,7 +347,7 @@ impl Worker {
 
     /// The notices' choices and the app's clock.
     fn alert_cfg(&self) -> AlertCfg {
-        let offset_min = poni_core::oyenza::offset_minutes(&crate::clock::local_now(), crate::clock::unix_now());
+        let offset_min = poni_core::datetime::offset_minutes(&crate::clock::local_now(), crate::clock::unix_now());
         AlertCfg { near: pace::near(self.watch.near_pct), offset_min, use_24h: self.watch.use_24h, ..AlertCfg::default() }
     }
 
