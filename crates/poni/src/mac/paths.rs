@@ -42,21 +42,6 @@ pub fn lock_path() -> PathBuf {
     cache_dir().join("poni.lock")
 }
 
-/// A meeting's audio while it is recorded and handed over (Meeting notes),
-/// deleted once its notes are saved.
-pub fn notes_audio_dir() -> PathBuf {
-    cache_dir().join("notes")
-}
-
-/// Where meeting notes are saved, as Markdown: `~/Documents/Oyenza Studio/Notes`.
-/// Under `PONI_HOME` for the smoke run.
-pub fn notes_dir() -> PathBuf {
-    if let Some(h) = home_override() {
-        return h.join("notes-saved");
-    }
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("Documents").join("Oyenza Studio").join("Notes")
-}
-
 pub fn lyrics_cache_dir() -> PathBuf {
     cache_dir().join("lyrics")
 }
@@ -66,19 +51,6 @@ pub fn lyrics_cache_dir() -> PathBuf {
 /// them again.
 pub fn addons_dir() -> PathBuf {
     cache_dir().join("addons")
-}
-
-/// The Oyenza sign-in (this Mac's key and the masked account), in a file
-/// only this Mac account can read (`services::secret`). Signing out removes
-/// it. With the settings, not the cache: macOS may empty caches by itself.
-pub fn oyenza_link_path() -> PathBuf {
-    data_dir().join("oyenza-link.bin")
-}
-
-/// A key signed out while Oyenza couldn't be reached, kept only to tell the
-/// server once it can.
-pub fn oyenza_revoke_path() -> PathBuf {
-    data_dir().join("oyenza-revoke.bin")
 }
 
 /// A key typed into the AI tab for one service
