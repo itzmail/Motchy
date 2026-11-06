@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Oyenza Studio.app's Info.plist. tools/make_mac_app.sh fills in @VERSION@ from Cargo.toml. -->
+<!-- Motchy.app's Info.plist. tools/make_mac_app.sh fills in @VERSION@ from Cargo.toml. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Oyenza Studio</string>
+	<string>Motchy</string>
 	<key>CFBundleName</key>
-	<string>Oyenza Studio</string>
+	<string>Motchy</string>
 	<key>CFBundleExecutable</key>
 	<string>poni</string>
 	<key>CFBundleIconFile</key>
@@ -33,9 +33,9 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<!-- Shown when Oyenza Studio first asks Music or Spotify what's playing. -->
+	<!-- Shown when Motchy first asks Music or Spotify what's playing. -->
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Oyenza Studio shows what Music and Spotify are playing, with its lyrics, and its buttons play, pause and skip.</string>
+	<string>Motchy shows what Music and Spotify are playing, with its lyrics, and its buttons play, pause and skip.</string>
 	<!-- Shown when Prayer times first asks where the Mac is (only while it follows the location). -->
 	<key>NSLocationUsageDescription</key>
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
@@ -43,15 +43,6 @@
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
 	<!-- Shown if macOS asks before the app reaches a file in Downloads it didn't make. -->
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>Oyenza Studio opens files from Downloads that you put on the Shelf.</string>
-	<!-- Shown when Meeting notes first records the Mac's own sound (a Core Audio tap, only while a meeting is recorded). -->
-	<key>NSAudioCaptureUsageDescription</key>
-	<string>Oyen listens to the voices of your call, from your Mac's own sound, to write your meeting notes.</string>
-	<!-- Shown when Meeting notes first saves notes in Documents › Oyenza Studio › Notes. -->
-	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Oyenza Studio saves your meeting notes in Documents, in Oyenza Studio › Notes.</string>
-	<!-- Shown when the IELTS coach or Meeting notes first records (the microphone runs only while it records). -->
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Oyen listens to your spoken IELTS answers and scores them, and to you in a meeting you take notes of.</string>
+	<string>Motchy opens files from Downloads that you put on the Shelf.</string>
 </dict>
 </plist>
