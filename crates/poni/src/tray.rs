@@ -60,6 +60,8 @@ pub enum MenuCmd {
     SetHideFullscreen(bool),
     ToggleSounds,
     TogglePinned,
+    /// "Move island to the centre": back from where it was dragged.
+    CentreIsland,
     ToggleAutostart,
     /// "Advanced settings…": the Settings window.
     ShowSettings,
@@ -142,6 +144,11 @@ pub fn menu_items(s: &Settings, pinned: bool, recorder: bool, update: UpdateLine
         MenuItem::Separator,
         item("Quit Oyenza Studio", MenuCmd::Quit, false),
     ];
+    // Only once the island was dragged off the middle: the way back, under Keep island open.
+    if s.island_x.is_some() {
+        let at = items.iter().position(|i| matches!(i, MenuItem::Item { cmd: MenuCmd::TogglePinned, .. })).map_or(items.len(), |i| i + 1);
+        items.insert(at, item("Move island to the centre", MenuCmd::CentreIsland, false));
+    }
     // Only while the System add-on is on: its page's history, under Sounds.
     if s.system_on() {
         let at = items.iter().position(|i| matches!(i, MenuItem::Item { cmd: MenuCmd::ToggleSounds, .. })).unwrap_or(items.len());
@@ -302,6 +309,23 @@ mod tests {
         // Not while a version is on offer (its line comes first), nor with the checks off.
         assert!(!cmds(UpdateLine::Offer("0.2.5".into())).contains(&MenuCmd::CheckForUpdates));
         assert!(!cmds(UpdateLine::None).contains(&MenuCmd::CheckForUpdates));
+    }
+
+    #[test]
+    fn the_way_back_to_the_centre_shows_once_the_island_moved() {
+        let cmds = |s: &Settings| -> Vec<MenuCmd> {
+            menu_items(s, false, false, UpdateLine::None)
+                .into_iter()
+                .filter_map(|i| match i {
+                    MenuItem::Item { cmd, .. } => Some(cmd),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(!cmds(&Settings::default()).contains(&MenuCmd::CentreIsland));
+        let moved = cmds(&Settings { island_x: Some(0.8), ..Settings::default() });
+        let pin = moved.iter().position(|c| *c == MenuCmd::TogglePinned).expect("no Keep island open");
+        assert_eq!(moved.get(pin + 1), Some(&MenuCmd::CentreIsland));
     }
 
     #[test]
