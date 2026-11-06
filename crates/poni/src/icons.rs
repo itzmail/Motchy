@@ -78,6 +78,8 @@ pub enum Icon {
     Addons,
     /// The Script tab: lines of text with a cue arrow at the line to say.
     Script,
+    /// The Coding tab: a pair of angle brackets with a slash.
+    Code,
     /// A crescent moon: Prayer times.
     Moon,
     /// Stop (the adzan): a rounded square.
@@ -313,6 +315,7 @@ pub fn parts(icon: Icon) -> &'static [Part] {
             s("M13.5 17h7"),
         ],
         // A circle (r 8) less a second one (r 7) up and to the right: both arcs meet where the circles cross.
+        Code => p![s("M8 7.5L3.5 12L8 16.5"), s("M16 7.5L20.5 12L16 16.5"), s("M13.6 5.5L10.4 18.5")],
         Moon => p![s("M19.77 13.9A8 8 0 1 1 10.1 4.23A7 7 0 0 0 19.77 13.9Z")],
         Script => p![s("M10 6.5h10"), s("M10 12h10"), s("M10 17.5h6.5"), f("M3.6 9.3v5.4a.8.8 0 0 0 1.2.7l4.3-2.7a.8.8 0 0 0 0-1.4L4.8 8.6a.8.8 0 0 0-1.2.7z")],
         Stop => p![f("M8.2 6.5h7.6a1.7 1.7 0 0 1 1.7 1.7v7.6a1.7 1.7 0 0 1-1.7 1.7H8.2a1.7 1.7 0 0 1-1.7-1.7V8.2a1.7 1.7 0 0 1 1.7-1.7z")],
@@ -462,7 +465,7 @@ mod tests {
         Icon::Pin, Icon::PinFill, Icon::Folder, Icon::File, Icon::Trash, Icon::Undo, Icon::Reset,
         Icon::Sliders, Icon::Open, Icon::Eye, Icon::MoneyIn, Icon::MoneyOut, Icon::Transfer, Icon::Card, Icon::Wallet,
         Icon::Unlink, Icon::Gear,
-        Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop, Icon::Script, Icon::Record, Icon::Download,
+        Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop, Icon::Script, Icon::Code, Icon::Record, Icon::Download,
         Icon::Recorder, Icon::Screen, Icon::AppWindow, Icon::Area, Icon::Camera, Icon::Mic, Icon::Bell, Icon::Notes, Icon::Message,
         Icon::Ai, Icon::OpenAi, Icon::Claude, Icon::OpenCode, Icon::Gemini, Icon::Antigravity, Icon::Cursor, Icon::Copilot, Icon::Kimi, Icon::Zai,
         Icon::MiniMax, Icon::OpenRouter, Icon::Oyenza,

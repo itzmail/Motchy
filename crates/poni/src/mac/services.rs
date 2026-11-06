@@ -21,6 +21,9 @@ mod cf;
 pub mod clipboard;
 #[path = "services/fullscreen.rs"]
 pub mod fullscreen;
+// Sync to the person's own git repository.
+#[path = "services/gitsync.rs"]
+pub mod gitsync;
 #[path = "services/http.rs"]
 pub mod http;
 #[path = "services/keychain.rs"]
@@ -65,6 +68,9 @@ pub mod sysmon;
 pub mod sysstats;
 #[path = "services/thumbs.rs"]
 pub mod thumbs;
+// WakaTime's days of coding, for the Coding page.
+#[path = "services/wakatime.rs"]
+pub mod wakatime;
 
 use objc2_app_kit::{NSColor, NSColorSpace, NSSound, NSWorkspace};
 use objc2_foundation::{NSArray, NSFileManager, NSString, NSURL};

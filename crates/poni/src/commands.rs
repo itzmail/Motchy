@@ -90,6 +90,15 @@ pub enum Command {
     BlurText,
     /// Persist `AppState::store` soon.
     SaveStore,
+    /// Sync to the person's git repository now (Settings' Sync now).
+    SyncNow,
+    /// Switch Track coding time on (the Coding page's Turn on).
+    CodingOn,
+    /// Point the editors' WakaTime plugins at this app, or put the file back.
+    CodingSetup,
+    CodingRestore,
+    /// Take the repository's address from the clipboard (Settings' Paste address).
+    SyncPaste,
     /// Persist `AppState::settings` now (after a page toggled a setting).
     SaveSettings,
     /// Open the Settings window, or bring it forward (the gear, Windows).

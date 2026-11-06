@@ -112,6 +112,9 @@ enum Scene {
     /// and limits, a trouble mix, nothing found, the first look, the
     /// Services list.
     Ai(crate::pages::usage::Picture),
+    /// The Coding page in its four states: tracking off, the editors not
+    /// pointed here yet, waiting for the first heartbeats, and a month of days.
+    Coding(u8),
 }
 
 const SCENES: [Scene; 15] = [
@@ -165,6 +168,7 @@ fn ai_scenes() -> impl Iterator<Item = Scene> {
 
 /// The Settings page (behind the gear), after Prayer times.
 const SETTINGS_SCENES: [Scene; 1] = [Scene::Page(PageKind::Settings)];
+const CODING_SCENES: [Scene; 4] = [Scene::Coding(0), Scene::Coding(1), Scene::Coding(2), Scene::Coding(3)];
 /// The headphone pop-up, after Settings.
 const HEADPHONE_SCENES: [Scene; 1] = [Scene::HeadphonesHud];
 /// The System page's Power module on a Mac without a battery, after headphones.
@@ -202,6 +206,7 @@ impl Scene {
             Scene::UpdateSheet => "page-update-sheet".into(),
             Scene::UpdateReady => "page-update-ready".into(),
             Scene::Ai(p) => p.name().into(),
+            Scene::Coding(n) => format!("page-coding-{n}"),
         }
     }
 }
@@ -265,7 +270,7 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
     // The Add-ons tab, Prayer times, Settings, the headphone pop-up, Power, Prayer times abroad, the Update sheet, Record and the AI tab in every theme, after Pill's.
     let first = SCENES.len() + SYSTEM_SCENES.len() + 2 + PILL_SCENES.len();
     let mut next = first;
-    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(POWER_SCENES).chain(PRAYER_WORLD_SCENES).chain(UPDATE_SCENES).chain(ai_scenes());
+    let later = SETTINGS_SCENES.into_iter().chain(HEADPHONE_SCENES).chain(POWER_SCENES).chain(PRAYER_WORLD_SCENES).chain(UPDATE_SCENES).chain(CODING_SCENES).chain(ai_scenes());
     for (k, scene) in ADDON_SCENES.into_iter().chain(PRAYER_SCENES).chain(later).enumerate() {
         let path = out.join(format!("{:02}-{}{suffix}.png", first + k, scene.name()));
         match render_scene(&mut gfx, scene, theme, notch, &path) {
@@ -762,6 +767,28 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.update = crate::state::UpdateView { offer: Some(fake_release()), sheet: true, ready: scene == Scene::UpdateReady, ..Default::default() };
             st.page = PageKind::Settings;
             Mode::Expanded(PageKind::Settings)
+        }
+
+        Scene::Coding(n) => {
+            use poni_core::wakatime::{Share, Summary};
+            let share = |name: &str, secs| Share { name: name.into(), secs };
+            st.settings.coding.track = n > 0;
+            st.coding.plugins_ready = n > 1;
+            st.coding.listening = n > 0;
+            if n == 3 {
+                st.coding.summary = Summary {
+                    today: 7500,
+                    week: [3600, 7200, 0, 5400, 9000, 1800, 7500],
+                    week_total: 34_500,
+                    month_total: 112_000,
+                    projects: vec![share("motchy", 18_000), share("oyenza-site", 9000), share("dotfiles", 4200)],
+                    languages: vec![share("Rust", 21_000), share("Swift", 6000), share("Markdown", 3000)],
+                    kept: 41,
+                    since: "2026-09-26".into(),
+                };
+            }
+            st.page = PageKind::Coding;
+            Mode::Expanded(PageKind::Coding)
         }
 
         Scene::Ai(shows) => {

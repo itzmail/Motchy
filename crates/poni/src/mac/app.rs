@@ -92,8 +92,10 @@ enum Timer {
     Stats,
     /// The next read of the update file (`crate::updates`).
     Update,
+    /// The day's sync to the person's git repository (`sync_due`).
+    Sync,
 }
-const TIMERS: [Timer; 8] = [Timer::Hover, Timer::Collapse, Timer::Wake, Timer::Save, Timer::Minute, Timer::Smoke, Timer::Stats, Timer::Update];
+const TIMERS: [Timer; 9] = [Timer::Hover, Timer::Collapse, Timer::Wake, Timer::Save, Timer::Minute, Timer::Smoke, Timer::Stats, Timer::Update, Timer::Sync];
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -417,7 +419,7 @@ pub struct App {
     page_switch_t: f64,
     /// Deadlines (mono seconds) of the app's timers, and the one NSTimer
     /// set for the earliest.
-    timers: [Option<f64>; 8],
+    timers: [Option<f64>; TIMERS.len()],
     ns_timer: Option<(f64, Retained<NSTimer>)>,
     saved_settings: Settings,
     settings_writable: bool,
@@ -464,6 +466,13 @@ pub struct App {
     usage_watch: services::usage::Watch,
     /// New versions (`crate::updates`); None in the smoke test.
     updater: Option<crate::updates::Updater>,
+    /// What this Mac remembers of its git syncs (`sync.json`), and whether
+    /// one is running.
+    sync_mem: poni_core::gitsync::Memory,
+    sync_running: bool,
+    /// The server the editors' WakaTime plugins send to: only while Track
+    /// coding time is on.
+    coding_server: Option<services::wakatime::Server>,
     /// Prayer times' adzan, while it plays.
     adzan: services::adzan::AdzanPlayer,
     motion: Option<MotionStats>,
@@ -562,7 +571,7 @@ impl App {
             wheel_acc: 0.0,
             wheel_t: 0.0,
             page_switch_t: 0.0,
-            timers: [None; 8],
+            timers: [None; TIMERS.len()],
             ns_timer: None,
             saved_settings,
             settings_writable: s_out.writable(),
@@ -586,6 +595,9 @@ impl App {
             usage: None,
             usage_watch: services::usage::Watch::default(),
             updater: None,
+            sync_mem: Default::default(),
+            sync_running: false,
+            coding_server: None,
             adzan: Default::default(),
             motion: None,
             motion_name: "morph",
@@ -626,6 +638,8 @@ impl App {
         };
         self.sync_addons();
         self.schedule_update();
+        self.start_sync_clock();
+        self.sync_coding_server();
         self.fetch_setup();
         // Shelf tiles for what was left on the Shelf.
         for p in self.st.store.shelf.paths() {
@@ -766,6 +780,7 @@ impl App {
             }
             Timer::Smoke => self.smoke_step(),
             Timer::Update => self.update_due(),
+            Timer::Sync => self.sync_due(),
             Timer::Stats => {
                 if self.stats_on {
                     self.st.stats = services::sysstats::sample();
@@ -852,6 +867,13 @@ impl App {
         // The Settings window shows the change.
         if let Some(s) = self.settings_ui.as_mut() {
             s.view.dirty = true;
+        }
+        // A new repository address: sync to it at once if a sync is due.
+        if before.sync != self.st.settings.sync {
+            self.sync_due();
+        }
+        if before.coding != self.st.settings.coding {
+            self.sync_coding_server();
         }
         if before.theme != self.st.settings.theme {
             self.st.accent = theme_accent();
@@ -1289,6 +1311,204 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------ git sync
+
+    /// Arm the sync's one-shot timer `secs` from now. Its clock stops while
+    /// the Mac sleeps, so waking calls [`Self::sync_due`] too.
+    fn arm_sync(&mut self, secs: u64) {
+        self.set_timer(Timer::Sync, secs.saturating_mul(1000).clamp(1000, u32::MAX as u64) as u32);
+    }
+
+    /// At start: what this Mac remembers, and a first look a minute and a
+    /// half in, out of the way of the start.
+    fn start_sync_clock(&mut self) {
+        if self.smoke.is_some() {
+            return;
+        }
+        self.sync_mem = load_json(&paths::sync_memory_path()).0;
+        // With no repository there is nothing to have failed: an error left by
+        // an earlier version (it once asked WakaTime for the days) isn't news.
+        if self.st.settings.sync.repo_url.is_none() && !self.sync_mem.error.is_empty() {
+            self.sync_mem.error.clear();
+            let _ = save_json_atomic(&paths::sync_memory_path(), &self.sync_mem);
+        }
+        self.st.sync.last_day = self.sync_mem.last_day.clone();
+        self.st.sync.error = self.sync_mem.error.clone();
+        self.load_coding();
+        if self.sync_enabled() {
+            self.arm_sync(90);
+        }
+    }
+
+    /// A repository to sync with is set.
+    fn sync_enabled(&self) -> bool {
+        self.st.settings.sync.repo_url.is_some()
+    }
+
+    /// Read the days of coding kept on this Mac, and what the page needs to
+    /// say about the server and the plugins.
+    fn load_coding(&mut self) {
+        let today = clock::local_now().day_key();
+        let days = services::wakatime::load(&paths::coding_dir());
+        self.st.coding.summary = poni_core::wakatime::summarize(&days, &today);
+        self.st.coding.listening = self.coding_server.is_some();
+        self.st.coding.plugins_ready = services::wakatime::plugins_ready();
+    }
+
+    /// Start or stop the editors' server to match Track coding time. The
+    /// port is taken or not: if not, the page says so.
+    fn sync_coding_server(&mut self) {
+        if self.smoke.is_some() {
+            return;
+        }
+        if !self.st.settings.coding.track {
+            self.coding_server = None;
+        } else if self.coding_server.is_none() {
+            match services::wakatime::Server::start(paths::coding_dir(), poni_core::wakatime::PORT, self.sink.clone()) {
+                Ok(s) => {
+                    pinfo!("coding: listening on 127.0.0.1:{}", s.port());
+                    self.st.coding.error.clear();
+                    self.coding_server = Some(s);
+                }
+                Err(e) => {
+                    pwarn!("coding: {e}");
+                    self.st.coding.error = e;
+                }
+            }
+        }
+        self.load_coding();
+    }
+
+    /// Set up or restore the plugins' config file, and say what happened.
+    fn coding_plugins(&mut self, set_up: bool) {
+        let r = if set_up { services::wakatime::setup_plugins() } else { services::wakatime::restore_plugins() };
+        self.st.coding.error = r.err().unwrap_or_default();
+        self.load_coding();
+        self.request_frame();
+    }
+
+    /// The timer fired, someone came back, or the address changed: sync if a
+    /// repository is set and a new day began, once per day. Otherwise the
+    /// next look is just after midnight; nothing runs in between.
+    fn sync_due(&mut self) {
+        if self.smoke.is_some() || self.sync_running {
+            return;
+        }
+        if !self.sync_enabled() {
+            self.kill_timer(Timer::Sync);
+            return;
+        }
+        let now = clock::unix_now();
+        let local = clock::local_at(now);
+        if !poni_core::gitsync::due(&self.sync_mem, &local.day_key()) {
+            let left = clock::day_start_unix(&local, now) + 86_400 - now;
+            self.arm_sync(left.max(0) as u64 + 60);
+            return;
+        }
+        // Waking, unlocking and leaving battery saver call this again.
+        if self.away.0 || self.away.1 || self.st.power.saver {
+            return;
+        }
+        self.start_sync(now, local.day_key());
+    }
+
+    /// Paste address (Settings): the clipboard's text becomes the repository
+    /// when it is one `git clone` takes; otherwise Settings says so.
+    fn sync_paste(&mut self) {
+        let text = services::clipboard::read_text().unwrap_or_default();
+        let url = text.trim();
+        if !poni_core::gitsync::valid_repo_url(url) {
+            self.st.sync.error = "That isn't an address git can clone: copy an HTTPS or SSH one (no name or token in it)".into();
+        } else {
+            let before = self.st.settings.clone();
+            self.st.settings.sync.repo_url = Some(url.to_string());
+            self.st.sync.error.clear();
+            self.settings_changed(&before);
+            self.save_settings();
+        }
+        if let Some(s) = self.settings_ui.as_mut() {
+            s.view.dirty = true;
+        }
+        self.request_frame();
+    }
+
+    /// Sync now (Settings), whatever the day and even on battery saver:
+    /// someone asked.
+    fn sync_now(&mut self) {
+        if self.sync_running || !self.sync_enabled() {
+            return;
+        }
+        let now = clock::unix_now();
+        self.start_sync(now, clock::local_at(now).day_key());
+    }
+
+    /// One run on its own short thread; it ends with `AppEvent::Sync`.
+    fn start_sync(&mut self, now: i64, today: String) {
+        if !self.sync_enabled() {
+            return;
+        }
+        let Some(url) = self.st.settings.sync.repo_url.clone() else { return };
+        self.save_settings();
+        let settings_time = std::fs::metadata(paths::settings_path())
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        let job = services::gitsync::Job {
+            url,
+            coding: Some(paths::coding_dir()),
+            dir: paths::sync_repo_dir(),
+            settings: self.st.settings.clone(),
+            memory: self.sync_mem.clone(),
+            settings_time,
+            now: now.max(0) as u64,
+            today,
+            machine: services::gitsync::machine(),
+        };
+        self.sync_running = true;
+        self.st.sync.running = true;
+        pinfo!("sync: started");
+        let sink = self.sink.clone();
+        std::thread::spawn(move || sink.send(AppEvent::Sync(services::gitsync::sync(&job))));
+    }
+
+    fn on_sync(&mut self, r: Result<services::gitsync::Done, String>) {
+        self.sync_running = false;
+        self.st.sync.running = false;
+        match r {
+            Ok(done) => {
+                pinfo!("sync: done{}", if done.settings.is_some() { " (took the settings from the repository)" } else { "" });
+                self.sync_mem = done.memory;
+                if !self.sync_mem.error.is_empty() {
+                    pwarn!("sync: {}", self.sync_mem.error);
+                }
+                if let Some(s) = done.settings {
+                    let before = self.st.settings.clone();
+                    self.st.settings = s;
+                    self.settings_changed(&before);
+                    self.save_settings();
+                }
+            }
+            Err(e) => {
+                pwarn!("sync: {e}");
+                self.sync_mem.error = e;
+            }
+        }
+        self.st.sync.last_day = self.sync_mem.last_day.clone();
+        self.st.sync.error = self.sync_mem.error.clone();
+        self.load_coding();
+        if let Err(e) = save_json_atomic(&paths::sync_memory_path(), &self.sync_mem) {
+            pwarn!("saving sync.json failed: {e}");
+        }
+        if self.sync_mem.error.is_empty() {
+            self.sync_due();
+        } else {
+            // Try again in an hour: no network, the host busy, a key not loaded.
+            self.arm_sync(3600);
+        }
+        self.request_frame();
+    }
+
     // ------------------------------------------------------------ new versions
 
     /// Arm the update file's timer for the next read, or stop it while a
@@ -1404,8 +1624,10 @@ impl App {
         if now {
             self.st.system.clear();
         } else {
-            // Back: a read of the update file that came due meanwhile.
+            // Back: a read of the update file that came due meanwhile, and a
+            // new day's sync (the timers don't count the Mac's sleep).
             self.update_due();
+            self.sync_due();
         }
         self.set_usage_watch();
         self.apply_fullscreen();
@@ -1448,7 +1670,7 @@ impl App {
         self.st.now = now;
         let media_before = matches!(ev, AppEvent::Media(_) | AppEvent::MediaTimeline { .. }).then(|| self.media_snapshot());
         // What the Settings window shows that a service reports.
-        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_));
+        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_) | AppEvent::Sync(_));
         if let Some(s) = self.settings_ui.as_mut().filter(|_| shown) {
             s.view.dirty = true;
         }
@@ -1531,6 +1753,7 @@ impl App {
                         self.set_usage_watch();
                 if old.saver && !p.saver {
                     self.update_due();
+                    self.sync_due();
                 }
                 if self.st.settings.hud_power && p.has_battery {
                     if p.on_ac != old.on_ac {
@@ -1587,6 +1810,8 @@ impl App {
             AppEvent::ScreensAsleep(on) => self.set_away(Some(on), None),
             AppEvent::Locked(on) => self.set_away(None, Some(on)),
             AppEvent::Addon { id, status } => self.on_addon(id, status),
+            AppEvent::Sync(r) => self.on_sync(r),
+            AppEvent::Coding => self.load_coding(),
             AppEvent::Update(services::update::UpdateEvent::Checked(r)) => {
                 let open = self.updater.as_mut().is_some_and(|u| u.checked(&mut self.st, r, crate::updates::unix_now()));
                 self.schedule_update();
@@ -2593,6 +2818,16 @@ impl App {
                     self.save_settings();
                 }
                 Command::SaveStore => self.set_timer(Timer::Save, 800),
+                Command::SyncNow => self.sync_now(),
+                Command::SyncPaste => self.sync_paste(),
+                Command::CodingOn => {
+                    let before = self.st.settings.clone();
+                    self.st.settings.coding.track = true;
+                    self.settings_changed(&before);
+                    self.save_settings();
+                }
+                Command::CodingSetup => self.coding_plugins(true),
+                Command::CodingRestore => self.coding_plugins(false),
                 Command::SetPage(p) => self.set_page(p),
                 Command::OpenSystem(m) => {
                     self.st.ui.system_module = m;

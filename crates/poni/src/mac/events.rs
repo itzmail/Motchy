@@ -92,6 +92,10 @@ pub enum AppEvent {
     /// The AI tab's readings, typed keys and
     /// heads-up notices (`services::usage`).
     Usage(crate::services::usage::UsageEvent),
+    /// A batch of heartbeats was counted (`services::wakatime`).
+    Coding,
+    /// A sync to the person's git repository ended (`services::gitsync`).
+    Sync(Result<crate::services::gitsync::Done, String>),
     /// Prayer times' adzan played to its end (`services::adzan`).
     AdzanEnded,
     /// Free-form log line from a service thread.

@@ -11,6 +11,7 @@
 
 pub mod addons;
 pub mod card;
+pub mod coding;
 pub mod focus;
 pub mod media;
 pub mod notifications;
@@ -56,6 +57,9 @@ pub enum PageKind {
     /// AI usage: how much of each AI coding plan is left (`pages::usage`).
     /// A core tab, always in the row.
     Ai,
+    /// Time spent coding, from WakaTime's numbers kept by the app
+    /// (`pages::coding`). A tab of the island's own: Settings can take it off.
+    Coding,
     /// The System add-on's page, while it is on ([`tabs`]).
     System,
     /// The teleprompter: a script read under the webcam.
@@ -75,13 +79,14 @@ pub enum PageKind {
 impl PageKind {
     /// The tab row's order: the island's own pages, then the
     /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 12] = [
+    pub const ALL: [PageKind; 13] = [
         PageKind::Media,
         PageKind::Today,
         PageKind::Shelf,
         PageKind::Tasks,
         PageKind::Focus,
         PageKind::Ai,
+        PageKind::Coding,
         PageKind::System,
         PageKind::Script,
         PageKind::Prayer,
@@ -98,6 +103,7 @@ impl PageKind {
             PageKind::Shelf => "shelf",
             PageKind::Tasks => "tasks",
             PageKind::Today => "today",
+            PageKind::Coding => "coding",
             PageKind::System => "system",
             PageKind::Script => "script",
             PageKind::Prayer => "prayer",
@@ -120,6 +126,7 @@ impl PageKind {
             PageKind::Shelf => "Shelf",
             PageKind::Tasks => "Tasks",
             PageKind::Today => "Today",
+            PageKind::Coding => "Coding",
             PageKind::System => "System",
             PageKind::Script => "Script",
             PageKind::Prayer => "Prayer",
@@ -137,6 +144,7 @@ impl PageKind {
             PageKind::Shelf => Icon::Tray,
             PageKind::Tasks => Icon::ListChecks,
             PageKind::Today => Icon::Calendar,
+            PageKind::Coding => Icon::Code,
             PageKind::System => Icon::Gauge,
             PageKind::Script => Icon::Script,
             PageKind::Prayer => Icon::Moon,
@@ -163,7 +171,7 @@ impl PageKind {
 
     /// The island's own pages, which Settings can take off the row. AI
     /// stays; the add-ons' pages come and go with their switches.
-    pub const HIDEABLE: [PageKind; 5] = [PageKind::Media, PageKind::Today, PageKind::Shelf, PageKind::Tasks, PageKind::Focus];
+    pub const HIDEABLE: [PageKind; 6] = [PageKind::Media, PageKind::Today, PageKind::Shelf, PageKind::Tasks, PageKind::Focus, PageKind::Coding];
 
     pub fn hideable(self) -> bool {
         Self::HIDEABLE.contains(&self)
@@ -217,6 +225,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Shelf => shelf::height(st),
         PageKind::Tasks => tasks::height(st),
         PageKind::Today => today::height(st),
+        PageKind::Coding => coding::height(st),
         PageKind::System => system::height(st),
         PageKind::Script => script::height(st),
         PageKind::Prayer => prayer::height(st),
@@ -339,6 +348,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Shelf => shelf::draw(ui, st, area),
         PageKind::Tasks => tasks::draw(ui, st, area),
         PageKind::Today => today::draw(ui, st, area),
+        PageKind::Coding => coding::draw(ui, st, area),
         PageKind::System => system::draw(ui, st, area),
         PageKind::Script => script::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
@@ -611,12 +621,12 @@ mod tests {
     fn the_row_is_the_island_s_own_pages_then_the_plus() {
         use PageKind::*;
         let mut st = state();
-        assert_eq!(tabs(&st), [Media, Today, Shelf, Tasks, Focus, Ai, Addons]);
+        assert_eq!(tabs(&st), [Media, Today, Shelf, Tasks, Focus, Ai, Coding, Addons]);
         // The add-ons' pages come before the "+".
         for id in ["system", "script"] {
             st.addons.insert(id, poni_core::addons::Status::Ready);
         }
-        assert_eq!(&tabs(&st)[5..], [Ai, System, Script, Addons]);
+        assert_eq!(&tabs(&st)[5..], [Ai, Coding, System, Script, Addons]);
         // Clipboard left the app: an island last open there opens on Music.
         assert_eq!(PageKind::from_key("clipboard"), Media);
     }
@@ -628,12 +638,12 @@ mod tests {
         st.settings.hidden_tabs = vec!["today".into(), "tasks".into(), "addons".into()];
         st.page = Focus;
         // AI and the "+" can't be hidden.
-        assert_eq!(tabs(&st), [Media, Shelf, Focus, Ai, Addons]);
+        assert_eq!(tabs(&st), [Media, Shelf, Focus, Ai, Coding, Addons]);
         assert_eq!(first_tab(&st), Media);
         // Opened from elsewhere (a meeting's notice opens Today): its tab
         // shows while it's open, and stepping on leaves it behind.
         st.page = Today;
-        assert_eq!(tabs(&st), [Media, Today, Shelf, Focus, Ai, Addons]);
+        assert_eq!(tabs(&st), [Media, Today, Shelf, Focus, Ai, Coding, Addons]);
         st.page = step_tab(Today, &st, true);
         assert_eq!(st.page, Shelf);
         assert!(!tabs(&st).contains(&Today));
@@ -648,6 +658,16 @@ mod tests {
         settings.remember_page = false;
         settings.hidden_tabs = vec!["media".into(), "today".into()];
         assert_eq!(AppState::new(settings, Store::default()).page, Shelf);
+    }
+
+    #[test]
+    fn the_coding_page_has_a_tab_a_key_and_fits_the_island() {
+        let st = state();
+        assert!(tabs(&st).contains(&PageKind::Coding));
+        assert_eq!(PageKind::from_key("coding"), PageKind::Coding);
+        assert_eq!((PageKind::Coding.title(), PageKind::Coding.icon()), ("Coding", Icon::Code));
+        assert!(PageKind::Coding.hideable(), "people without WakaTime can take the tab off");
+        assert!(content_height(PageKind::Coding, &st) <= content_height(PageKind::Today, &st));
     }
 
     #[test]

@@ -259,6 +259,11 @@ pub enum Key {
     PrayerFollow,
     AiNotices,
     AiNear,
+    CodingTrack,
+    CodingPlugins,
+    SyncSet,
+    SyncNow,
+    SyncOff,
     SettingsFile,
     DataFolder,
     ReleaseNotes,
@@ -379,6 +384,40 @@ fn offset_text(ms: i32) -> String {
     }
 }
 
+/// The Coding group: listening for the editors' WakaTime plugins, and
+/// pointing them at this app.
+fn coding_rows(st: &AppState) -> Vec<Item> {
+    let mut rows = vec![switch(Key::CodingTrack, "Track coding time", Some("Listens on this Mac for your editors' WakaTime plugins"), st.settings.coding.track)];
+    if st.settings.coding.track {
+        let (sub, label) = if st.coding.plugins_ready { ("~/.wakatime.cfg sends to Motchy", "Restore") } else { ("Adds api_url to ~/.wakatime.cfg and keeps a backup", "Set up") };
+        rows.push(item(Key::CodingPlugins, "Editors' plugins", Some(sub), Ctl::Button(label)));
+    }
+    rows
+}
+
+/// The Sync group: the person's own git repository, set by pasting its
+/// address (a field would need the keyboard; people copy it from the host).
+fn sync_rows(st: &AppState) -> Vec<Item> {
+    let Some(url) = st.settings.sync.repo_url.as_deref() else {
+        let sub = if st.sync.error.is_empty() { "Copy the repository's address (HTTPS or SSH), then press Paste".to_string() } else { st.sync.error.clone() };
+        return vec![item(Key::SyncSet, "Git repository", Some(&sub), Ctl::Button("Paste address"))];
+    };
+    let state = if st.sync.running {
+        "Syncing…".to_string()
+    } else if !st.sync.error.is_empty() {
+        format!("Last try failed: {}", st.sync.error)
+    } else if !st.sync.last_day.is_empty() {
+        format!("Last sync: {}", st.sync.last_day)
+    } else {
+        "Not synced yet".to_string()
+    };
+    vec![
+        item(Key::SyncSet, "Git repository", Some(url), Ctl::Button("Paste new")),
+        item(Key::SyncNow, "Sync now", Some(&state), Ctl::Button("Sync now")),
+        item(Key::SyncOff, "Stop syncing", Some("The local copy stays; nothing more is sent"), Ctl::Button("Remove")),
+    ]
+}
+
 /// What `section` shows for `st`.
 pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
     let s = &st.settings;
@@ -392,7 +431,7 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
             if s.system_on() {
                 rows.push(switch(Key::SystemHistory, "Keep System page history", Some("The charts keep the last minute while the page is closed"), s.system_history));
             }
-            vec![Block::Version, Block::Group(None, rows)]
+            vec![Block::Version, Block::Group(None, rows), Block::Group(Some("Coding"), coding_rows(st)), Block::Group(Some("Sync"), sync_rows(st)), Block::Note("Your settings and coding time go to a private git repository of your own, once a day.")]
         }
         Section::Appearance => {
             let looks = status::looks(s.theme);
@@ -627,6 +666,23 @@ pub fn apply(st: &mut AppState, key: Key, act: Act) {
         Key::PrayerFollow => s.prayer.follow_location = !s.prayer.follow_location,
         Key::AiNotices => s.usage.notices = !s.usage.notices,
         Key::AiNear => s.usage.near_pct = (s.usage.near_pct as i32 + step * 5).clamp(50, 95) as u8,
+        Key::CodingTrack => s.coding.track = !s.coding.track,
+        Key::CodingPlugins => {
+            st.cmd(if st.coding.plugins_ready { Command::CodingRestore } else { Command::CodingSetup });
+            return;
+        }
+        Key::SyncSet => {
+            st.cmd(Command::SyncPaste);
+            return;
+        }
+        Key::SyncNow => {
+            st.cmd(Command::SyncNow);
+            return;
+        }
+        Key::SyncOff => {
+            s.sync.repo_url = None;
+            st.sync.error.clear();
+        }
         Key::SettingsFile => {
             st.cmd(Command::OpenPath(crate::paths::settings_path().to_string_lossy().into_owned()));
             return;
@@ -1570,11 +1626,51 @@ mod tests {
                 match it.key {
                     // Start with Windows waits for its reading; the buttons open things.
                     Key::Autostart => assert!(st.cmds.is_empty()),
+                    Key::SyncSet | Key::SyncNow => assert!(st.cmds.iter().any(|c| matches!(c, Command::SyncPaste | Command::SyncNow)), "{:?}", it.key),
                     Key::SettingsFile | Key::DataFolder | Key::ReleaseNotes | Key::LyricsCredit => assert!(opens, "{:?}", it.key),
                     _ => assert!(saved, "{:?} didn't save", it.key),
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_coding_group_offers_the_plugins_only_while_tracking() {
+        let mut st = state();
+        let keys = |st: &AppState| coding_rows(st).iter().map(|i| i.key).collect::<Vec<_>>();
+        assert_eq!(keys(&st), [Key::CodingTrack]);
+        st.cmds.clear();
+        apply(&mut st, Key::CodingTrack, Act::Toggle);
+        assert!(st.settings.coding.track && st.cmds.iter().any(|c| matches!(c, Command::SaveSettings)));
+        assert_eq!(keys(&st), [Key::CodingTrack, Key::CodingPlugins]);
+        assert_eq!(coding_rows(&st)[1].ctl, Ctl::Button("Set up"));
+        st.cmds.clear();
+        apply(&mut st, Key::CodingPlugins, Act::Press);
+        assert_eq!(st.cmds, [Command::CodingSetup]);
+        st.coding.plugins_ready = true;
+        assert_eq!(coding_rows(&st)[1].ctl, Ctl::Button("Restore"));
+        st.cmds.clear();
+        apply(&mut st, Key::CodingPlugins, Act::Press);
+        assert_eq!(st.cmds, [Command::CodingRestore]);
+    }
+
+    #[test]
+    fn the_sync_group_follows_the_repository() {
+        let mut st = state();
+        let keys = |st: &AppState| sync_rows(st).iter().map(|i| i.key).collect::<Vec<_>>();
+        assert_eq!(keys(&st), [Key::SyncSet], "no repository: only Paste");
+        st.settings.sync.repo_url = Some("git@github.com:me/motchy-data.git".into());
+        assert_eq!(keys(&st), [Key::SyncSet, Key::SyncNow, Key::SyncOff]);
+        st.sync.last_day = "2026-11-06".into();
+        assert_eq!(sync_rows(&st)[1].sub.as_deref(), Some("Last sync: 2026-11-06"));
+        st.sync.error = "git isn't installed".into();
+        assert!(sync_rows(&st)[1].sub.as_deref().unwrap().contains("git isn't installed"));
+        st.sync.running = true;
+        assert_eq!(sync_rows(&st)[1].sub.as_deref(), Some("Syncing…"));
+        st.cmds.clear();
+        apply(&mut st, Key::SyncOff, Act::Press);
+        assert_eq!(st.settings.sync.repo_url, None);
+        assert!(st.cmds.iter().any(|c| matches!(c, Command::SaveSettings)));
     }
 
     #[test]

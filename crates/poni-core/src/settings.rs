@@ -111,6 +111,28 @@ pub struct Settings {
     /// The Notifications add-on's choices: which apps the island shows, and
     /// whether who it's from and the message show at once.
     pub notifications: crate::notifications::NotificationSettings,
+    /// The person's own git repository for their settings and activity
+    /// (`crate::gitsync`). Never shared itself.
+    pub sync: SyncSettings,
+    /// The Coding page's choices.
+    pub coding: CodingSettings,
+}
+
+/// Coding time, from the editors' WakaTime plugins (`crate::wakatime`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CodingSettings {
+    /// Listen on this Mac for the plugins' heartbeats. Off until switched on:
+    /// nothing listens by default.
+    pub track: bool,
+}
+
+/// Where this Mac syncs to. Off until an address is set.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncSettings {
+    /// The repository to `git clone` (HTTPS or SSH), or None.
+    pub repo_url: Option<String>,
 }
 
 /// What the AI tab shows and whether it gives heads-up notices.
@@ -203,6 +225,8 @@ impl Default for Settings {
             prayer: PrayerSettings::default(),
             usage: UsageSettings::default(),
             notifications: crate::notifications::NotificationSettings::default(),
+            sync: SyncSettings::default(),
+            coding: CodingSettings::default(),
         }
     }
 }
@@ -264,6 +288,7 @@ impl Settings {
         p.long_break_min = p.long_break_min.clamp(1, 120);
         p.long_every = p.long_every.min(12);
         self.prayer.remind_before_min = self.prayer.remind_before_min.min(60);
+        self.sync.repo_url = self.sync.repo_url.take().map(|u| u.trim().to_string()).filter(|u| crate::gitsync::valid_repo_url(u));
         self
     }
 }

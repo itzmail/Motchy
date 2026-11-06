@@ -33,6 +33,22 @@ pub fn store_path() -> PathBuf {
     data_dir().join("data.json")
 }
 
+/// What this Mac remembers of its git syncs (`poni_core::gitsync::Memory`).
+/// It stays here: it is never part of what syncs.
+pub fn sync_memory_path() -> PathBuf {
+    data_dir().join("sync.json")
+}
+
+/// WakaTime's days of coding, a file per month (`poni_core::wakatime`).
+pub fn coding_dir() -> PathBuf {
+    data_dir().join("coding")
+}
+
+/// The local clone of the person's own repository.
+pub fn sync_repo_dir() -> PathBuf {
+    data_dir().join("sync-repo")
+}
+
 pub fn log_path() -> PathBuf {
     home_override().map(|h| h.join("poni.log")).unwrap_or_else(|| library().join("Logs").join("Poni").join("poni.log"))
 }

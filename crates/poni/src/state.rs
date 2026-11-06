@@ -199,6 +199,28 @@ impl Notice {
     }
 }
 
+/// What the Coding page shows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CodingView {
+    pub summary: poni_core::wakatime::Summary,
+    /// The server for the editors' plugins is listening.
+    pub listening: bool,
+    /// `~/.wakatime.cfg` sends the plugins to this app.
+    pub plugins_ready: bool,
+    /// Why the server or the plugins' set-up didn't work, if it didn't.
+    pub error: String,
+}
+
+/// What Settings shows of the sync to the person's git repository.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SyncView {
+    pub running: bool,
+    /// The day of the last good sync, empty if none yet.
+    pub last_day: String,
+    /// Why the last attempt failed, empty after a good one.
+    pub error: String,
+}
+
 /// What the app knows about new versions.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UpdateView {
@@ -468,6 +490,8 @@ pub struct AppState {
     /// New versions (`crate::updates`): what Settings, the menu and the
     /// island's notice show.
     pub update: UpdateView,
+    pub sync: SyncView,
+    pub coding: CodingView,
     /// The Prayer times add-on, while it is on (its choices: `settings.prayer`).
     pub prayer: PrayerState,
     /// The Script page's reading (its script and pace are in `store.script`).
@@ -531,6 +555,8 @@ impl AppState {
             drag_hover: false,
             addons: BTreeMap::new(),
             update: UpdateView::default(),
+            sync: SyncView::default(),
+            coding: CodingView::default(),
             prayer: PrayerState::default(),
             script: poni_core::script::Reader::default(),
             script_note: None,
