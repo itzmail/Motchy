@@ -43,10 +43,6 @@ pub struct Store {
     pub last_page: String,
     /// The Script page's script and its pace.
     pub script: crate::script::Script,
-    /// Oyenza Studio Recorder has written to the island (`recorder::Message`)
-    /// at least once, so it reads the Record page's links: Screen recorder
-    /// shows from then on. 1.0.0 never writes, and its Record would do nothing.
-    pub recorder_island: bool,
 }
 
 impl Default for Store {
@@ -59,7 +55,6 @@ impl Default for Store {
             focus_sessions: BTreeMap::new(),
             last_page: String::new(),
             script: crate::script::Script::default(),
-            recorder_island: false,
         }
     }
 }
@@ -576,13 +571,4 @@ mod tests {
         assert_eq!(sibling(&p, ".corrupt-5.json"), Path::new("dir").join("settings.corrupt-5.json"));
     }
 
-    #[test]
-    fn a_recorder_that_never_wrote_is_not_one_that_reads_record_links() {
-        let old: Store = serde_json::from_str(r#"{"version":1,"last_page":"music"}"#).unwrap();
-        assert!(!old.recorder_island, "files from before the Record page: not yet");
-        let mut s = Store::default();
-        s.recorder_island = true;
-        let back: Store = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert!(back.recorder_island);
-    }
 }

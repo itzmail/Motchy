@@ -38,7 +38,6 @@ pub enum MenuCmd {
     ReloadSettings,
     OpenDataFolder,
     About,
-    RecordScreen,
     /// "Update to Oyenza Studio 0.2.5…" (`crate::updates`).
     Update,
     /// "Check for updates…": read the update file now (`crate::updates`).
@@ -61,7 +60,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 /// Move island to the centre shows while `s.island_x` is set (the app
 /// passes it only where the island moves). `update`: a later version the
 /// update file offers, or Check for updates… (`crate::updates::menu_line`).
-pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, update: UpdateLine) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, login: Login, update: UpdateLine) -> Vec<MenuItem> {
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
     // The theme's own idle looks (the status bar is Pill's), the one it
@@ -107,11 +106,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, upda
     if s.island_x.is_some() {
         let at = items.iter().position(|i| matches!(i, MenuItem::Item { cmd: MenuCmd::TogglePinned, .. })).map_or(items.len(), |i| i + 1);
         items.insert(at, item("Move island to the centre", MenuCmd::CentreIsland, false));
-    }
-    // Only once the separate recorder app is installed: until then the
-    // island doesn't mention recording at all.
-    if recorder {
-        items.splice(0..0, [item("Record this screen", MenuCmd::RecordScreen, false), MenuItem::Separator]);
     }
     match update {
         // A new version first, until it is installed.
@@ -193,7 +187,7 @@ impl MenuBar {
             button.setToolTip(Some(&NSString::from_str(&format!("Oyenza Studio {}", crate::version::VERSION))));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
-        let menu = build(mtm, &target, &menu_items(s, pinned, login, crate::services::recorder::installed(), update));
+        let menu = build(mtm, &target, &menu_items(s, pinned, login, update));
         item.setMenu(Some(&menu));
         ITEM.with(|i| *i.borrow_mut() = Some(item.clone()));
         MenuBar { item, target, menu }
@@ -201,7 +195,7 @@ impl MenuBar {
 
     /// Rebuild the menu (ticks follow the settings).
     pub fn refresh(&mut self, mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login, update: UpdateLine) {
-        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login, crate::services::recorder::installed(), update));
+        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login, update));
         self.item.setMenu(Some(&self.menu));
     }
 }

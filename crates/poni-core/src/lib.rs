@@ -23,7 +23,6 @@ pub mod peek;
 pub mod pomodoro;
 pub mod power;
 pub mod prayer;
-pub mod recorder;
 pub mod script;
 pub mod settings;
 pub mod sha256;

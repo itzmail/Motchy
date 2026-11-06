@@ -15,7 +15,6 @@ pub mod focus;
 pub mod media;
 pub mod notifications;
 pub mod prayer;
-pub mod record;
 pub mod script;
 pub mod settings;
 pub mod shelf;
@@ -61,9 +60,6 @@ pub enum PageKind {
     System,
     /// The teleprompter: a script read under the webcam.
     Script,
-    /// Screen recording with Oyenza Studio Recorder, while its add-on is on
-    /// ([`tabs`]): what to record, then the recording under way.
-    Record,
     /// Prayer times, while that add-on is on ([`tabs`]).
     Prayer,
     /// Which apps' notifications show on the island, while the
@@ -79,7 +75,7 @@ pub enum PageKind {
 impl PageKind {
     /// The tab row's order: the island's own pages, then the
     /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 13] = [
+    pub const ALL: [PageKind; 12] = [
         PageKind::Media,
         PageKind::Today,
         PageKind::Shelf,
@@ -88,7 +84,6 @@ impl PageKind {
         PageKind::Ai,
         PageKind::System,
         PageKind::Script,
-        PageKind::Record,
         PageKind::Prayer,
         PageKind::Notifications,
         PageKind::Addons,
@@ -105,7 +100,6 @@ impl PageKind {
             PageKind::Today => "today",
             PageKind::System => "system",
             PageKind::Script => "script",
-            PageKind::Record => "record",
             PageKind::Prayer => "prayer",
             PageKind::Notifications => "notifications",
             PageKind::Addons => "addons",
@@ -128,7 +122,6 @@ impl PageKind {
             PageKind::Today => "Today",
             PageKind::System => "System",
             PageKind::Script => "Script",
-            PageKind::Record => "Record",
             PageKind::Prayer => "Prayer",
             PageKind::Notifications => "Notifications",
             PageKind::Addons => "Add-ons",
@@ -146,7 +139,6 @@ impl PageKind {
             PageKind::Today => Icon::Calendar,
             PageKind::System => Icon::Gauge,
             PageKind::Script => Icon::Script,
-            PageKind::Record => Icon::Recorder,
             PageKind::Prayer => Icon::Moon,
             PageKind::Notifications => Icon::Bell,
             PageKind::Addons => Icon::Addons,
@@ -179,7 +171,7 @@ impl PageKind {
 }
 
 /// The tabs in the header: every page but Settings, and
-/// System, Script, Record, Prayer and Notifications only while their
+/// System, Script, Prayer and Notifications only while their
 /// add-ons are on. Music, Today, Shelf, Tasks and Focus unless Settings took
 /// them off the row; one of those still shows while its page is open (a file
 /// dropped on the island opens the Shelf). AI is always there.
@@ -202,7 +194,6 @@ fn row(st: &AppState, open: Option<PageKind>) -> Vec<PageKind> {
             PageKind::System => st.system_on(),
             PageKind::Prayer => st.prayer_on(),
             PageKind::Script => st.script_on(),
-            PageKind::Record => st.record_on(),
             PageKind::Notifications => st.notifications_on(),
             p if p.hideable() => !st.tab_hidden(p) || open == Some(p),
             p => p.tabbed(),
@@ -228,7 +219,6 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Today => today::height(st),
         PageKind::System => system::height(st),
         PageKind::Script => script::height(st),
-        PageKind::Record => record::height(st),
         PageKind::Prayer => prayer::height(st),
         PageKind::Notifications => notifications::height(st),
         PageKind::Addons => addons::height(st),
@@ -246,7 +236,6 @@ pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
         PageKind::Shelf => shelf::next_wake(st),
         PageKind::Settings => settings::next_wake(st),
         PageKind::Script => script::next_wake(st),
-        PageKind::Record => record::next_wake(st),
         PageKind::Prayer => prayer::next_wake(st),
         PageKind::Today => today::next_wake(st),
         _ => None,
@@ -352,7 +341,6 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Today => today::draw(ui, st, area),
         PageKind::System => system::draw(ui, st, area),
         PageKind::Script => script::draw(ui, st, area),
-        PageKind::Record => record::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
         PageKind::Notifications => notifications::draw(ui, st, area),
         PageKind::Addons => addons::draw(ui, st, area),
@@ -767,12 +755,9 @@ mod tests {
     }
 
     #[test]
-    fn neither_the_record_page_nor_six_add_ons_make_the_window_taller() {
-        let mut st = state();
-        st.recorder = true;
-        st.store.recorder_island = true;
+    fn six_add_ons_do_not_make_the_window_taller() {
+        let st = state();
         let tallest = content_height(PageKind::System, &st);
-        assert!(content_height(PageKind::Record, &st) <= tallest);
         assert!(content_height(PageKind::Addons, &st) <= tallest, "{} > {tallest}", content_height(PageKind::Addons, &st));
     }
 

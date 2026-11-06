@@ -159,14 +159,6 @@ fn ear(m: &Mode, st: &AppState) -> f32 {
             }
         }
         Mode::Activity(Activity::MediaTimer) => 96.0,
-        // "12:34" in the right ear, as the timer's; "1:02:03" past an hour.
-        Mode::Activity(Activity::Recording) => {
-            if st.rec_elapsed() >= 3600.0 {
-                80.0
-            } else {
-                66.0
-            }
-        }
         // "10 min" in the right ear.
         Mode::Activity(Activity::Prayer) => 66.0,
         _ => 56.0,
@@ -314,13 +306,6 @@ pub fn draw_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, n: Notch)
             ui.c.icon(Icon::Moon, Rect::from_center(Point::new(left.center().x + 6.0, body.center().y), 16.0, 16.0), col);
             let ts = TextStyle::body().weight(Weight::Semibold).tabular().color(col).center();
             ui.c.text(&format!("{mins} min"), Rect::new(right.x, body.y, right.w - 6.0, body.h), &ts);
-            true
-        }
-        // A screen recording: its dot left of the camera, its time right.
-        Mode::Activity(Activity::Recording) => {
-            activities::recording_mark(ui, st, Point::new(left.center().x + 6.0, body.center().y));
-            let (text, ts) = activities::recording_time(st);
-            ui.c.text(&text, Rect::new(right.x, body.y, right.w - 6.0, body.h), &ts.center());
             true
         }
         // Art left and bars right, no words under the camera: the

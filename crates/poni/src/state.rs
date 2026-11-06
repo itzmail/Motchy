@@ -12,7 +12,6 @@ use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
 use poni_core::lrc::Lyrics;
 use poni_core::pomodoro::Pomodoro;
-use poni_core::recorder::Phase as RecPhase;
 use poni_core::prayer::{Place, PlaceList, PrayerMoment, Site, World};
 use poni_core::settings::Settings;
 use poni_core::store::Store;
@@ -338,25 +337,6 @@ impl PrayerState {
     }
 }
 
-/// What Oyenza Studio Recorder last said about its recording
-/// (`poni_core::recorder::Message::State`).
-#[derive(Clone, Debug, Default)]
-pub struct RecView {
-    /// None: no recording heard of (none yet, or the last one ended).
-    pub phase: Option<RecPhase>,
-    /// Its length when the message came (paused time left out)...
-    pub elapsed_ms: u64,
-    /// ...and when that was (mono seconds), to count on from while it records.
-    pub at: f64,
-    /// The recorder's window, to notice a recorder gone mid-recording (0: none).
-    pub sender: isize,
-    /// Record was pressed and the recorder hasn't answered yet: the page says
-    /// "Opening the recorder" until this time (mono seconds).
-    pub opening_until: f64,
-    /// Why the last start failed, shown on the Record page until a time.
-    pub error: Option<(String, f64)>,
-}
-
 /// The AI tab's readings, kept in memory only (its choices are
 /// `settings.usage`). Filled by `services::usage` while the tab is open, or
 /// every few minutes for the person who switched on its heads-up notices.
@@ -497,12 +477,6 @@ pub struct AppState {
     /// Whether Windows leaves the island out of screen capture while the
     /// Script page shows (None = not asked yet, or not on Windows).
     pub script_hidden: Option<bool>,
-    /// Oyenza Studio Recorder is installed: the Script page shows Record, and
-    /// the Record tab can show (`record_on`). Asked at start, as the island
-    /// opens and when the recorder writes, never at rest.
-    pub recorder: bool,
-    /// The recorder's recording, as it last told the island.
-    pub rec: RecView,
     /// Whether Windows lets the Notifications add-on read notifications.
     pub notify_access: NotifyAccess,
     /// The AI tab's readings (its choices: `settings.usage`).
@@ -561,8 +535,6 @@ impl AppState {
             script: poni_core::script::Reader::default(),
             script_note: None,
             script_hidden: None,
-            recorder: false,
-            rec: RecView::default(),
             notify_access: NotifyAccess::Unknown,
             usage: UsageState::default(),
             cmds: Vec::new(),
@@ -580,7 +552,6 @@ impl AppState {
         let off = match st.page {
             PageKind::Script => !st.script_on(),
             PageKind::System => !st.system_on(),
-            PageKind::Record => !st.record_on(),
             PageKind::Notifications => !st.notifications_on(),
             p => st.tab_hidden(p),
         };
@@ -593,39 +564,6 @@ impl AppState {
     /// Where the add-on `id` stands (`Off` for one this version doesn't know).
     pub fn addon(&self, id: &str) -> AddonStatus {
         self.addons.get(id).copied().unwrap_or(AddonStatus::Off)
-    }
-
-    /// Screen recorder is on (`Settings::recorder_on`): the Record tab shows
-    /// and the island answers the recorder, which then shows no bar or
-    /// controls of its own (`WM_COPYDATA` on Windows, a message port on the Mac).
-    pub fn record_on(&self) -> bool {
-        self.settings.recorder_on(self.recorder_ready())
-    }
-
-    /// The recorder is installed and has written to the island before
-    /// (`Store::recorder_island`): it understands the Record page.
-    pub fn recorder_ready(&self) -> bool {
-        self.recorder && self.store.recorder_island
-    }
-
-    /// A recording is under way: starting, recording, paused or being saved.
-    pub fn rec_live(&self) -> bool {
-        self.rec.phase.is_some_and(|p| p != RecPhase::Idle)
-    }
-
-    /// The recording's length now, in seconds (paused time left out).
-    pub fn rec_elapsed(&self) -> f64 {
-        let at_message = self.rec.elapsed_ms as f64 / 1000.0;
-        if self.rec.phase == Some(RecPhase::Recording) {
-            at_message + (self.now - self.rec.at).max(0.0)
-        } else {
-            at_message
-        }
-    }
-
-    /// Seconds until the recording's time shows its next second, while it runs.
-    pub fn rec_next_second(&self) -> Option<f64> {
-        (self.rec.phase == Some(RecPhase::Recording)).then(|| 1.0 - self.rec_elapsed().fract())
     }
 
     /// The Script reader add-on is on: the Script tab shows.

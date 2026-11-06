@@ -72,7 +72,7 @@ const CHECK_H: f32 = 22.0;
 const ADVANCED_ICON: f32 = 15.0;
 const SWITCH_H: f32 = 18.0;
 const KNOB_INSET: f32 = 2.0;
-/// The tabs row's chips, like the Record page's inputs.
+/// The tabs row's chips.
 const CHIP_H: f32 = 24.0;
 const CHIP_PAD: f32 = 8.0;
 const CHIP_ICON: f32 = 14.0;
@@ -270,8 +270,8 @@ fn draw_advanced(ui: &mut Ui, st: &mut AppState, r: Rect, card: Option<(Rect, f3
 }
 
 /// "Tabs", then a chip for each of the island's own pages: on, its icon and
-/// name; off (no tab in the row), the icon struck through and dim, as the
-/// Record page marks an input that's off. A click flips it. Icons only
+/// name; off (no tab in the row), the icon struck through and dim. A click
+/// flips it. Icons only
 /// where the names don't fit.
 fn draw_tabs(ui: &mut Ui, st: &mut AppState, r: Rect) {
     let body = TextStyle::body();

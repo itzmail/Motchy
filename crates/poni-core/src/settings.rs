@@ -108,8 +108,6 @@ pub struct Settings {
     pub prayer: PrayerSettings,
     /// The AI tab's choices (its readers are the `studio-usage` crate).
     pub usage: UsageSettings,
-    /// The Record page's choices (Oyenza Studio Recorder).
-    pub record: RecordSettings,
     /// The Notifications add-on's choices: which apps the island shows, and
     /// whether who it's from and the message show at once.
     pub notifications: crate::notifications::NotificationSettings,
@@ -135,28 +133,6 @@ pub struct UsageSettings {
 impl Default for UsageSettings {
     fn default() -> Self {
         Self { hidden: Vec::new(), added: Vec::new(), notices: false, near_pct: 80 }
-    }
-}
-
-/// What the Record page records next: its last picks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RecordSettings {
-    pub target: crate::recorder::Target,
-    pub camera: bool,
-    pub microphone: bool,
-    pub system_audio: bool,
-}
-
-impl Default for RecordSettings {
-    fn default() -> Self {
-        Self { target: crate::recorder::Target::Screen, camera: false, microphone: true, system_audio: false }
-    }
-}
-
-impl RecordSettings {
-    pub fn inputs(&self) -> crate::recorder::Inputs {
-        crate::recorder::Inputs { camera: self.camera, microphone: self.microphone, system_audio: self.system_audio }
     }
 }
 
@@ -226,7 +202,6 @@ impl Default for Settings {
             addons: BTreeMap::new(),
             prayer: PrayerSettings::default(),
             usage: UsageSettings::default(),
-            record: RecordSettings::default(),
             notifications: crate::notifications::NotificationSettings::default(),
         }
     }
@@ -251,12 +226,6 @@ impl Settings {
     /// switch, and only while System itself is on.
     pub fn system_history_on(&self) -> bool {
         self.system_on() && self.system_history
-    }
-
-    /// Screen recorder: on once Oyenza Studio Recorder is `installed`, unless
-    /// the person switched it off (installing the recorder is the switch).
-    pub fn recorder_on(&self, installed: bool) -> bool {
-        installed && self.addons.get(crate::addons::SCREEN_RECORDER.id).copied().unwrap_or(true)
     }
 
     /// Clamp values a user may have hand-edited into nonsense.
@@ -470,17 +439,4 @@ mod tests {
         assert_eq!(s, back);
     }
 
-    #[test]
-    fn record_choices_default_and_round_trip() {
-        // Files from before the Record page get its defaults: this screen, the microphone.
-        let s: Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(s.record, RecordSettings::default());
-        assert_eq!(s.record.inputs(), crate::recorder::Inputs { camera: false, microphone: true, system_audio: false });
-        let mut s = Settings::default();
-        s.record = RecordSettings { target: crate::recorder::Target::Area, camera: true, microphone: false, system_audio: true };
-        let j = serde_json::to_string(&s).unwrap();
-        assert!(j.contains(r#""record":{"target":"area","camera":true,"microphone":false,"system_audio":true}"#), "{j}");
-        let back: Settings = serde_json::from_str(&j).unwrap();
-        assert_eq!(back.record, s.record);
-    }
 }

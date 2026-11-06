@@ -69,8 +69,6 @@ pub fn geom(a: Activity, st: &AppState) -> Option<Geom> {
         Activity::Timer => TIMER_W,
         Activity::MediaTimer => MEDIA_TIMER_W,
         Activity::Prayer => prayer_w(st),
-        Activity::Recording if st.rec_elapsed() >= 3600.0 => TIMER_LONG_W,
-        Activity::Recording => TIMER_W,
     };
     Some(capsule(w))
 }
@@ -81,7 +79,6 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) -> bool {
         Activity::Timer => draw_timer(ui, st, body),
         Activity::MediaTimer => draw_media_timer(ui, st, body),
         Activity::Prayer => draw_prayer(ui, st, body),
-        Activity::Recording => draw_recording(ui, st, body),
     }
     true
 }
@@ -159,23 +156,6 @@ fn draw_timer(ui: &mut Ui, st: &AppState, body: Rect) {
     let text = fmt_countdown(p.remaining(st.now));
     let right = body.right() - DIGITS_RIGHT;
     ui.c.text(&text, Rect::new(right - 80.0, body.y, 80.0, body.h), &digits(paused).right());
-}
-
-/// A recording, in the timer's place: the red dot in the left end cap (a
-/// pause mark while paused, a ring while it starts or saves), the time
-/// where the countdown sits.
-fn draw_recording(ui: &mut Ui, st: &AppState, body: Rect) {
-    use poni_core::recorder::Phase;
-    let c = Point::new(body.x + GLYPH_INSET + RING_D / 2.0, body.center().y);
-    let phase = st.rec.phase;
-    match phase {
-        Some(Phase::Recording) => ui.c.fill_circle(c, 5.0, palette::RED),
-        Some(Phase::Paused) => ui.c.icon(Icon::Pause, Rect::from_center(c, 11.0, 11.0), palette::TEXT),
-        _ => ui.c.stroke_circle(c, 4.4, palette::TEXT_DIM, 1.4),
-    }
-    let text = poni_core::recorder::fmt_length(st.rec_elapsed());
-    let right = body.right() - DIGITS_RIGHT;
-    ui.c.text(&text, Rect::new(right - 80.0, body.y, 80.0, body.h), &digits(phase != Some(Phase::Recording)).right());
 }
 
 /// Album art in the left end cap (or a note on a grey tile), dimmed while

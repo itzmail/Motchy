@@ -18,7 +18,6 @@ pub mod lyrics;
 pub mod media;
 pub mod netinfo;
 pub mod power;
-pub mod recorder;
 pub mod secret;
 pub mod sound;
 pub mod notifications;

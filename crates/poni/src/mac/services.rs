@@ -59,8 +59,6 @@ pub mod login;
 pub mod netinfo;
 #[path = "services/power.rs"]
 pub mod power;
-#[path = "services/recorder.rs"]
-pub mod recorder;
 #[path = "services/sysmon.rs"]
 pub mod sysmon;
 #[path = "services/sysstats.rs"]
