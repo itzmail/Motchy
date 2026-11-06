@@ -751,13 +751,7 @@ pub struct Gfx {
     brush: ID2D1SolidColorBrush,
     round_stroke: ID2D1StrokeStyle,
     /// The system UI font family (Segoe UI Variable / Segoe UI).
-    system_family: Vec<u16>,
-    /// The family text is written in now: the look's font, else the system's.
     family: Vec<u16>,
-    /// The fonts shipped in the exe, once loaded (`None` until a look wants
-    /// them, or when this Windows can't load fonts from memory).
-    embedded: Option<IDWriteFontCollection>,
-    embedded_tried: bool,
     /// How content is painted (the theme).
     look: &'static Look,
     formats: HashMap<(u32, Weight, bool), IDWriteTextFormat>,
@@ -822,42 +816,6 @@ fn pick_font_family(dwrite: &IDWriteFactory) -> Vec<u16> {
     wide("Segoe UI").into_iter().chain(Some(0)).collect()
 }
 
-/// Fonts shipped inside the exe: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the four weights
-/// the island uses.
-const EMBEDDED_FONTS: [&[u8]; 4] = [
-    include_bytes!("../res/fonts/Outfit-Regular.ttf"),
-    include_bytes!("../res/fonts/Outfit-Medium.ttf"),
-    include_bytes!("../res/fonts/Outfit-SemiBold.ttf"),
-    include_bytes!("../res/fonts/Outfit-Bold.ttf"),
-];
-
-/// A font collection of the embedded fonts (needs Windows 10 1703+). Letters
-/// they lack (Japanese, Korean, emoji, ...) still come from the system fonts
-/// through DirectWrite's fallback.
-fn load_embedded_fonts(dwrite: &IDWriteFactory) -> Result<IDWriteFontCollection> {
-    unsafe {
-        let f5: IDWriteFactory5 = dwrite.cast()?;
-        let loader = f5.CreateInMemoryFontFileLoader()?;
-        f5.RegisterFontFileLoader(&loader)?;
-        let builder = f5.CreateFontSetBuilder()?;
-        for data in EMBEDDED_FONTS {
-            // No owner object: DirectWrite keeps its own copy of the bytes.
-            let file = loader.CreateInMemoryFontFileReference(&f5, data.as_ptr() as *const c_void, data.len() as u32, None::<&windows::core::IUnknown>)?;
-            builder.AddFontFile(&file)?;
-        }
-        let set = builder.CreateFontSet()?;
-        f5.CreateFontCollectionFromFontSet(&set)?.cast()
-    }
-}
-
-/// Whether `coll` holds a family called `name`.
-fn has_family(coll: &IDWriteFontCollection, name: &[u16]) -> bool {
-    let mut index = 0u32;
-    let mut exists = BOOL(0);
-    unsafe { coll.FindFamilyName(PCWSTR(name.as_ptr()), &mut index, &mut exists).is_ok() && exists.as_bool() }
-}
-
 /// `PONI_RENDERER=software` forces the software renderer (troubleshooting).
 fn gpu_wanted() -> bool {
     !std::env::var("PONI_RENDERER").is_ok_and(|v| v.trim().eq_ignore_ascii_case("software"))
@@ -914,10 +872,7 @@ impl Gfx {
                 dpi,
                 brush,
                 round_stroke,
-                system_family: family.clone(),
                 family,
-                embedded: None,
-                embedded_tried: false,
                 look: &look::CLASSIC,
                 formats: HashMap::new(),
                 layouts: HashMap::new(),
@@ -971,35 +926,12 @@ impl Gfx {
         }
     }
 
-    /// Paint with `look` from the next frame on. A new font throws away the
-    /// cached text formats and layouts.
+    /// Paint with `look` from the next frame on.
     pub fn set_look(&mut self, look: &'static Look) {
         if std::ptr::eq(self.look, look) {
             return;
         }
         self.look = look;
-        let family = match look.font {
-            Some(name) => {
-                if !self.embedded_tried {
-                    self.embedded_tried = true;
-                    match load_embedded_fonts(&self.dwrite) {
-                        Ok(c) => self.embedded = Some(c),
-                        Err(e) => crate::pwarn!("fonts: embedded fonts unavailable ({e}); using the system font"),
-                    }
-                }
-                let w: Vec<u16> = wide(name).into_iter().chain(Some(0)).collect();
-                match &self.embedded {
-                    Some(c) if has_family(c, &w) => w,
-                    _ => self.system_family.clone(),
-                }
-            }
-            None => self.system_family.clone(),
-        };
-        if family != self.family {
-            self.family = family;
-            self.formats.clear();
-            self.layouts.clear();
-        }
     }
 
     pub fn renderer(&self) -> Renderer {
@@ -1433,11 +1365,10 @@ impl Gfx {
         if let Some(f) = self.formats.get(&key) {
             return Ok(f.clone());
         }
-        let coll = if self.family != self.system_family { self.embedded.clone() } else { None };
         let f = unsafe {
             let f = self.dwrite.CreateTextFormat(
                 PCWSTR(self.family.as_ptr()),
-                coll.as_ref(),
+                None::<&IDWriteFontCollection>,
                 weight.dwrite(),
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
@@ -1699,8 +1630,8 @@ impl<'a> Canvas<'a> {
         self.g.look
     }
 
-    /// Run `f` painting colours exactly as given, outside the theme (Oyen's
-    /// own face).
+    /// Run `f` painting colours exactly as given, outside the theme
+    /// (album art, brand marks).
     pub fn unthemed<R>(&mut self, f: impl FnOnce(&mut Canvas<'a>) -> R) -> R {
         let prev = self.g.look;
         self.g.look = &look::CLASSIC;

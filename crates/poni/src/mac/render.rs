@@ -471,7 +471,7 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
 /// The Eyes look around notch `n` as it moves (stills can't show it), a
 /// frame a row, a fifteenth of a second apart: the pointer (drawn, so each
 /// frame says what the eyes follow) wanders right of the camera and crosses
-/// over; the eyes (Oyen, in his theme) duck behind the camera and come out
+/// over; the eyes duck behind the camera and come out
 /// on its left, follow it up into the menu bar and back under the camera.
 fn render_peek(gfx: &mut Gfx, theme: Theme, n: Notch, path: &Path) -> Result<(), String> {
     /// The pointer from the island's top centre (DIPs) at each time
@@ -696,7 +696,7 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     let mode = match scene {
         Scene::IdleClock => Mode::Idle,
         // Around a notch the eyes look at the pointer: down at it in the
-        // window under the menu bar (Oyen rests again a while after it
+        // window under the menu bar (the eyes rest again a while after it
         // moved), and over the notch while it hovers there.
         Scene::IdleEyes => {
             st.settings.idle_style = IdleStyle::Eyes;

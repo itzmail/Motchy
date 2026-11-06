@@ -689,7 +689,7 @@ mod tests {
         ProviderId::ALL.iter().position(|p| *p == id).unwrap_or(0)
     }
     use crate::events::SendHwnd;
-    use studio_usage::{Money, Source, Window, WindowKind};
+    use studio_usage::{Source, Window, WindowKind};
     use std::sync::mpsc::{channel, Receiver};
 
     const NOW: i64 = 1_793_077_200;

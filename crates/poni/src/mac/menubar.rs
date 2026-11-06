@@ -1,4 +1,4 @@
-//! The menu bar item (Oyen's mark) and its menu, also shown on a right-click
+//! The menu bar item (the logo) and its menu, also shown on a right-click
 //! of the island. It carries what works on the Mac so far; lyrics and the
 //! Apple Music token join it with the music slice.
 
@@ -246,7 +246,7 @@ fn build_into(mtm: MainThreadMarker, target: &MenuTarget, items: &[MenuItem], cm
     menu
 }
 
-/// Oyen's mark as a one-colour template image (macOS tints it for light and
+/// The logo as a one-colour template image (macOS tints it for light and
 /// dark menu bars). Drawn from the mark's own outlines with the small cut's
 /// eyes, the size the logo uses at 32 px and below.
 fn mark_image(mtm: MainThreadMarker) -> Option<Retained<NSImage>> {

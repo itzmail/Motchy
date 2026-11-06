@@ -3,14 +3,13 @@
 //! `--render` and the menu bar icon).
 //!
 //! The drawing API ([`Canvas`]) is the Windows renderer's (`../gfx.rs`), call
-//! for call, so pages, activities and Oyen draw unchanged. Coordinates are
+//! for call, so pages and activities draw unchanged. Coordinates are
 //! DIPs (points): the context's base transform puts (0, 0) at the top left
 //! with y growing down, and Core Graphics does the Retina scaling.
 //!
 //! Differences that are on purpose:
 //! * Colours are sRGB, like the Windows island, whatever the display's own space.
-//! * Text uses the system font (SF Pro, with monospaced digits for `tabular`)
-//!   unless the look brings its own (Outfit for Oyen, embedded in the app).
+//! * Text uses the system font (SF Pro, with monospaced digits for `tabular`).
 //! * [`Canvas::layered`] is a Core Graphics transparency layer: the group still
 //!   fades as one picture, and its text is drawn live through the transform
 //!   (macOS doesn't hint glyphs, so scaled text glides without re-snapping).
@@ -19,7 +18,7 @@ use crate::icons::{self, Icon};
 use objc2::rc::Retained;
 use objc2_app_kit::{NSFont, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold};
 use objc2_core_foundation::{
-    CFAttributedString, CFBoolean, CFData, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CGAffineTransform, CGFloat, CGPoint, CGRect,
+    CFAttributedString, CFBoolean, CFData, CFDictionary, CFRange, CFRetained, CFString, CFType, CGAffineTransform, CGFloat, CGPoint, CGRect,
     CGSize,
 };
 use objc2_core_graphics::{
@@ -28,7 +27,7 @@ use objc2_core_graphics::{
     CGLineJoin, CGMutablePath, CGPath,
 };
 use objc2_core_text::{
-    kCTFontAttributeName, kCTForegroundColorFromContextAttributeName, CTFont, CTFontDescriptor, CTFontManagerCreateFontDescriptorsFromData, CTLine,
+    kCTFontAttributeName, kCTForegroundColorFromContextAttributeName, CTFont, CTLine,
     CTLineTruncationType, CTTypesetter,
 };
 use poni_core::geom::{Color, Point, Rect};
@@ -297,17 +296,6 @@ fn cgrect(r: Rect) -> CGRect {
 
 // ---------------------------------------------------------------- fonts and text layout
 
-/// Fonts shipped inside the app: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the island's
-/// four weights. Letters Outfit lacks (Japanese, Korean, emoji, ...) come
-/// from the system's fonts through Core Text's fallback.
-const EMBEDDED_FONTS: [&[u8]; 4] = [
-    include_bytes!("../../res/fonts/Outfit-Regular.ttf"),
-    include_bytes!("../../res/fonts/Outfit-Medium.ttf"),
-    include_bytes!("../../res/fonts/Outfit-SemiBold.ttf"),
-    include_bytes!("../../res/fonts/Outfit-Bold.ttf"),
-];
-
 /// `kNumberSpacingType` / `kMonospacedNumbersSelector` (SFNTLayoutTypes.h).
 const NUMBER_SPACING: i32 = 6;
 const MONOSPACED_NUMBERS: i32 = 0;
@@ -317,7 +305,6 @@ struct FontKey {
     size: u32,
     weight: Weight,
     tabular: bool,
-    embedded: bool,
 }
 
 /// Text layouts are cached by everything that shapes them (not colour).
@@ -347,8 +334,6 @@ pub struct Gfx {
     look: &'static Look,
     srgb: CFRetained<CGColorSpace>,
     fonts: HashMap<FontKey, CFRetained<CTFont>>,
-    embedded: Option<Vec<CFRetained<CTFontDescriptor>>>,
-    embedded_tried: bool,
     ellipsis: HashMap<FontKey, CFRetained<CTLine>>,
     layouts: HashMap<LayoutKey, (Rc<TextLayout>, u64)>,
     images: HashMap<u64, (CFRetained<CGImage>, u64)>,
@@ -364,8 +349,6 @@ impl Gfx {
             look: &look::CLASSIC,
             srgb,
             fonts: HashMap::new(),
-            embedded: None,
-            embedded_tried: false,
             ellipsis: HashMap::new(),
             layouts: HashMap::new(),
             images: HashMap::new(),
@@ -408,48 +391,12 @@ impl Gfx {
         Canvas { g: self, ctx, alpha: 1.0, base, stack: 0 }
     }
 
-    fn embedded(&mut self) -> Option<&Vec<CFRetained<CTFontDescriptor>>> {
-        if !self.embedded_tried {
-            self.embedded_tried = true;
-            let mut out = Vec::new();
-            for data in EMBEDDED_FONTS {
-                let d = CFData::from_static_bytes(data);
-                let arr = unsafe { CTFontManagerCreateFontDescriptorsFromData(&d) };
-                let arr: &objc2_core_foundation::CFArray<CTFontDescriptor> = unsafe { arr.cast_unchecked() };
-                let found = arr.get(0);
-                match found {
-                    Some(desc) => out.push(desc),
-                    None => {
-                        pwarn!("embedded font could not be loaded; using the system font");
-                        return None;
-                    }
-                }
-            }
-            self.embedded = Some(out);
-        }
-        self.embedded.as_ref()
-    }
-
     fn font(&mut self, size: f32, weight: Weight, tabular: bool) -> CFRetained<CTFont> {
-        let key = FontKey { size: size.to_bits(), weight, tabular, embedded: self.look.font.is_some() };
+        let key = FontKey { size: size.to_bits(), weight, tabular };
         if let Some(f) = self.fonts.get(&key) {
             return f.clone();
         }
-        let embedded = if key.embedded {
-            self.embedded().map(|d| d[weight.index()].clone()).map(|desc| {
-                let desc = if tabular {
-                    let ty = CFNumber::new_i32(NUMBER_SPACING);
-                    let sel = CFNumber::new_i32(MONOSPACED_NUMBERS);
-                    unsafe { desc.copy_with_feature(&ty, &sel) }
-                } else {
-                    desc
-                };
-                unsafe { CTFont::with_font_descriptor(&desc, size as CGFloat, ptr::null()) }
-            })
-        } else {
-            None
-        };
-        let f = embedded.unwrap_or_else(|| system_font(size, weight, tabular));
+        let f = system_font(size, weight, tabular);
         self.fonts.insert(key, f.clone());
         f
     }
@@ -476,7 +423,7 @@ impl Gfx {
     /// every frame would be most of the frame.
     fn layout(&mut self, s: &str, st: &TextStyle, w: f32) -> Rc<TextLayout> {
         let w = w.max(1.0);
-        let fkey = FontKey { size: st.size.to_bits(), weight: st.weight, tabular: st.tabular, embedded: self.look.font.is_some() };
+        let fkey = FontKey { size: st.size.to_bits(), weight: st.weight, tabular: st.tabular };
         let key = LayoutKey { text: s.to_string(), font: fkey.clone(), wrap: st.wrap, line: st.line.to_bits(), w: w.to_bits() };
         let frame = self.frame_no;
         if let Some((l, used)) = self.layouts.get_mut(&key) {
@@ -756,8 +703,8 @@ impl<'a> Canvas<'a> {
         self.g.look
     }
 
-    /// Run `f` painting colours exactly as given, outside the theme (Oyen's
-    /// own face).
+    /// Run `f` painting colours exactly as given, outside the theme
+    /// (album art, brand marks).
     pub fn unthemed<R>(&mut self, f: impl FnOnce(&mut Canvas<'a>) -> R) -> R {
         let prev = self.g.look;
         self.g.look = &look::CLASSIC;

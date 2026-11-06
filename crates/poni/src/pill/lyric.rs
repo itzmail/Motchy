@@ -2,7 +2,7 @@
 //! line is current, when the next one starts (a one-shot wake, never a
 //! poll), and drawing it with a short cross-fade when it changes.
 //! [`super::media`] calls [`draw`] where the title would go and falls back
-//! to the title when it returns `false`. Classic, Oyen and Glass sing the
+//! to the title when it returns `false`. Classic and Glass sing the
 //! line the same way while a song has synced lyrics ([`sings`],
 //! `activities::draw_music`); their pill stays compact otherwise.
 //!

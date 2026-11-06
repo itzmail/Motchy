@@ -149,22 +149,6 @@ impl Client {
         Self::with(http, user_agent)
     }
 
-    /// A client that never answers from Windows' HTTP cache and writes
-    /// nothing to it. The default one serves a second GET of the same URL
-    /// from the cache when the server sent no `Cache-Control` (the IELTS
-    /// ladder after a session: "answered in 1 ms", the server never asked).
-    pub fn uncached(user_agent: &str) -> Result<Self, FetchError> {
-        let http = (|| {
-            let filter = HttpBaseProtocolFilter::new()?;
-            let cache = filter.CacheControl()?;
-            cache.SetReadBehavior(HttpCacheReadBehavior::MostRecent)?;
-            cache.SetWriteBehavior(HttpCacheWriteBehavior::NoCache)?;
-            HttpClient::Create(&filter)
-        })()
-        .map_err(|e| other("could not create an HTTP client", &e))?;
-        Self::with(http, user_agent)
-    }
-
     fn with(http: HttpClient, user_agent: &str) -> Result<Self, FetchError> {
         let headers = http.DefaultRequestHeaders().map_err(|e| other("could not set request headers", &e))?;
         let ua = HSTRING::from(user_agent);
@@ -234,33 +218,6 @@ impl Client {
         out
     }
 
-    /// POST `body` as it is (a meeting's audio part), with its media type.
-    pub fn post_bytes(&self, url: &str, headers: &[(&str, &str)], body: &[u8], content_type: &str, timeout: Duration) -> Result<Response, FetchError> {
-        let deadline = Instant::now() + timeout;
-        let uri = Uri::CreateUri(&HSTRING::from(url)).map_err(|e| other("invalid URL", &e))?;
-        let request = HttpRequestMessage::Create(&HttpMethod::Post().map_err(|e| other("could not create a request", &e))?, &uri)
-            .map_err(|e| other("could not create a request", &e))?;
-        let request_headers = request.Headers().map_err(|e| other("could not set request headers", &e))?;
-        for (name, value) in headers {
-            if !request_headers.TryAppendWithoutValidation(&HSTRING::from(*name), &HSTRING::from(*value)).unwrap_or(false) {
-                return Err(FetchError::Other(format!("could not set the {name} header")));
-            }
-        }
-        let content = (|| {
-            let writer = DataWriter::new()?;
-            writer.WriteBytes(body)?;
-            let content = HttpBufferContent::CreateFromBuffer(&writer.DetachBuffer()?)?;
-            content.Headers()?.SetContentType(&HttpMediaTypeHeaderValue::Create(&HSTRING::from(content_type))?)?;
-            request.SetContent(&content)
-        })();
-        content.map_err(|e| other("could not set the request body", &e))?;
-        let op = self.http.SendRequestAsync(&request).map_err(classify)?;
-        let resp = wait(&op, deadline)?;
-        let out = read_response(&resp, deadline);
-        let _ = resp.Close();
-        let _ = request.Close();
-        out
-    }
 }
 
 impl Client {

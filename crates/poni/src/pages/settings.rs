@@ -23,7 +23,7 @@ use crate::icons::Icon;
 use crate::pages::PageKind;
 use crate::pill::status;
 use crate::state::{AppState, Said};
-use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_GAP, PILL_REGULAR, PILL_SMALL};
+use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_SMALL};
 use crate::version::VERSION;
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::addons::fmt_bytes;
@@ -159,7 +159,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let look_sel = looks.iter().position(|s| *s == status::shown(st.settings.theme, st.settings.idle_style)).unwrap_or(0);
     // Side by side under their labels when both fit their columns, each
     // closed up only as far as it needs; else a row each. Whether they fit is
-    // asked of this theme's own looks, so Classic, Oyen and Glass sit side by
+    // asked of this theme's own looks, so Classic and Glass sit side by
     // side exactly where they always did (at a narrow island picking Pill,
     // with its fifth look, can stack them).
     let theme_pad = pad_to_fit(ui, &theme_names, col_w);

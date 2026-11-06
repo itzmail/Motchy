@@ -1421,9 +1421,7 @@ impl App {
             self.st.now = self.st.now.max(clock::mono());
             let now = self.st.now;
             let Some(w) = self.settings_win.as_mut() else { return };
-            let before = w.view.section;
             let out = w.paint(&mut self.st, now, None, false);
-            let after = w.view.section;
             if out.close {
                 self.close_settings_window();
                 return;

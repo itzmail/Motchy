@@ -28,7 +28,7 @@ use crate::settings_host;
 use crate::settings_window::{self, Section};
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{
-    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, PrayerState,
+    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, NoticeAction, PrayerState,
     VolumeState,
 };
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
@@ -1051,7 +1051,6 @@ impl App {
             top: settings_host::TITLEBAR,
             still: settings_host::reduce_motion() || !settings_host::has_frames(),
         };
-        let before = ui.view.section;
         let started = std::time::Instant::now();
         let out = {
             let mut canvas = ui.gfx.canvas(ctx);
@@ -1059,7 +1058,6 @@ impl App {
         };
         ui.draw_ms = started.elapsed().as_secs_f32() * 1000.0;
         ui.draw_max_ms = ui.draw_max_ms.max(ui.draw_ms);
-        let after = ui.view.section;
         // A switch sliding, a highlight gliding: frames at the screen's rate until it arrives.
         if out.moving {
             settings_host::set_frames(true);
@@ -3094,7 +3092,7 @@ impl App {
         self.gfx.set_look(look);
         let mut hits = std::mem::take(&mut self.hits);
         hits.clear();
-        let mut body_s = 0.0;
+        let body_s;
         let (repaint, anim, focus, live) = {
             let mut canvas = self.gfx.canvas(ctx);
             let body_started = started.map(|_| std::time::Instant::now());
@@ -3938,7 +3936,7 @@ impl App {
             "notch-classic-open" | "notch-classic-collapsed" => {
                 let look = self.look();
                 let ok = self.screen.notch.is_some() && *look == poni_core::look::CLASSIC && !glass::shown();
-                Some(("classic-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
+                Some(("classic-around-notch", ok, format!("ground {:?}, ink {:?}", look.ground, look.ink)))
             }
             "pill-open" | "pill-collapsed" | "notch-pill-open" | "notch-pill-collapsed" => Some(self.pill_report()),
             "notch-pill-music" => {

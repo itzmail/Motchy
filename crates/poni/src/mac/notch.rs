@@ -323,7 +323,7 @@ pub fn draw_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, n: Notch)
             ui.c.text(&text, Rect::new(right.x, body.y, right.w - 6.0, body.h), &ts.center());
             true
         }
-        // Art left and bars (or Oyen) right, no words under the camera: the
+        // Art left and bars right, no words under the camera: the
         // sung line hangs below the notch instead (`fit`).
         Mode::Activity(Activity::Media) => {
             activities::draw_music(ui, st, body, false);

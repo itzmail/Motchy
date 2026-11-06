@@ -53,18 +53,6 @@ pub fn apple_music_web_token_path() -> PathBuf {
     cache_dir().join("apple-music-web.json")
 }
 
-fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{SHGetKnownFolderPath, KF_FLAG_DEFAULT};
-    unsafe {
-        let p = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, HANDLE::default()).ok()?;
-        let s = p.to_string().ok();
-        CoTaskMemFree(Some(p.0 as *const _));
-        s.filter(|s| !s.is_empty()).map(PathBuf::from)
-    }
-}
-
 /// Add-on files, one folder per add-on (`services::addons`). Local, never
 /// roaming: a PC that hasn't them downloads them again. Switching an add-on
 /// off or uninstalling removes them.

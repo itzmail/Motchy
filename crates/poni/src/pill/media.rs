@@ -18,7 +18,7 @@
 //! lingering paused pill comes and goes as in Classic (`activities`).
 //!
 //! The middle ([`middle`]: the line, or the song, and the width it asks
-//! for) is shared: Classic, Oyen and Glass draw it between their own art
+//! for) is shared: Classic and Glass draw it between their own art
 //! and bars while a song has synced lyrics (`activities::draw_music`).
 
 use crate::gfx::{TextStyle, Weight};
@@ -135,7 +135,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
 /// The middle of a music pill, in this theme and in the others while a song
 /// sings (`activities::draw_music`): the line being sung, or the song,
 /// centred on `body` and cut to `x0..x1`, where the art and the bars (or
-/// Oyen) are. `alpha` dims it while paused. The width the text asks for is
+/// the others) are. `alpha` dims it while paused. The width the text asks for is
 /// kept for [`fit_w`].
 pub(crate) fn middle(ui: &mut Ui, st: &AppState, body: Rect, x0: f32, x1: f32, alpha: f32) {
     // The text centres on the pill in a box as wide as the widest pill's

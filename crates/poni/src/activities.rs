@@ -503,7 +503,7 @@ fn draw_activity(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) {
             ui.c.text(&text, Rect::new(body.x + 40.0, body.y, 64.0, body.h), &countdown_style(col, paused));
         }
         Activity::Prayer => {
-            // No Oyen here, in any theme: the moon, the minutes and OK only.
+            // The moon, the minutes and OK only.
             let Some((prayer, left)) = prayer_countdown(st) else { return };
             let col = st.accent;
             ui.c.icon(Icon::Moon, Rect::new(body.x + 14.0, cy - 8.0, 16.0, 16.0), col);
@@ -556,7 +556,7 @@ fn draw_recording(ui: &mut Ui, st: &AppState, body: Rect) {
 }
 
 /// The recording's mark at `c`: the red dot; a solid pause mark while
-/// paused, so the dimmed time still reads on the light Oyen ground; a ring
+/// paused, so the dimmed time still reads on a light ground; a ring
 /// while it starts or saves. Shared with the notch's left ear.
 pub(crate) fn recording_mark(ui: &mut Ui, st: &AppState, c: Point) {
     match st.rec.phase {

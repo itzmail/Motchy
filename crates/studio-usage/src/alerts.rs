@@ -2,7 +2,7 @@
 //! running out, or coming back after its reset, and a balance running low.
 //! Pure, like the readers: the worker keeps a [`Memory`] per service while
 //! the person has notices on, hands it each new reading, and sends what comes
-//! back to the island. Oyen never reacts to any of it (no sad Oyen at 100%).
+//! back to the island.
 //!
 //! Each reset period says each thing once. A reading that dips back under
 //! the line (a log line written before the server's rounder figure) changes

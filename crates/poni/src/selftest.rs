@@ -84,7 +84,7 @@ const SOFT_GPU_SETTLE_TIMEOUT: f64 = 8.0;
 /// Seconds to wait for a simulated tab click to switch the page.
 const CLICK_TIMEOUT: f64 = 1.5;
 /// Stop visiting scenes after this many seconds. The 89 scenes take about
-/// 45 s under Wine at 100 % (a busy machine is the slow end); on CI the Oyen
+/// 45 s under Wine at 100 % (a busy machine is the slow end); on CI the Classic
 /// theme with Japanese lyrics is the slowest run, about 63 s with 85 (it
 /// reached the old 50 s at scene 80 once the Today scenes came in, and 65 s
 /// was tight for four more). With 121 (Notifications and the AI tab

@@ -1063,7 +1063,7 @@ fn draw_close(ui: &mut Ui, card: Rect, m: &mut Motion) -> bool {
     resp.clicked
 }
 
-/// The sidebar: Oyen's tile and the window's name, then a row per section
+/// The sidebar: the logo tile and the window's name, then a row per section
 /// (About at the bottom). The highlight glides to the section picked.
 /// `top`: room for the Mac's window buttons.
 fn draw_sidebar(ui: &mut Ui, st: &mut AppState, side: Rect, section: Section, top: f32, m: &mut Motion) -> Option<Section> {
@@ -1383,7 +1383,7 @@ fn fill_row(ui: &mut Ui, row: Rect, c: Color, (first, last): (bool, bool)) {
     ui.c.unclip();
 }
 
-/// The version card: Oyen's tile, "Oyenza Studio" and this version, and
+/// The version card: the logo tile, "Oyenza Studio" and this version, and
 /// Check now; with a later version out, what it brings and how to get it
 /// (the island's Update sheet does the same).
 fn draw_version(ui: &mut Ui, st: &mut AppState, r: Rect, view: Rect, sf: &Surfaces) {

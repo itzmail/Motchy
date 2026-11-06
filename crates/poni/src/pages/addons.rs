@@ -20,7 +20,7 @@
 //! A Studio Pro add-on's row says Pro where its size was.
 
 use crate::commands::Command;
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::TextStyle;
 use crate::icons::Icon;
 use crate::state::AppState;
 use crate::ui::{wid_n, Ui};

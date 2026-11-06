@@ -12,10 +12,10 @@
 //!   white wash becomes an 8 % ink wash, the black island becomes the ground.
 //! * The palette's accents swap for the look's own, with a deeper shade for
 //!   text so small coloured labels stay readable on a light ground.
-//! * Anything else (album-art colours, Oyen's own face, `palette::ON_ACCENT`)
+//! * Anything else (album-art colours, brand marks, `palette::ON_ACCENT`)
 //!   is left alone.
 //!
-//! A look also says what the island is made of: Classic and Oyen paint a
+//! A look also says what the island is made of: Classic paints a
 //! solid ground, Glass draws liquid glass there (gfx and the glass shader)
 //! and paints content in the light or dark Glass look on top. And its
 //! shape: every theme hangs from the top edge like a notch, except Pill,
@@ -45,8 +45,6 @@ pub struct Look {
     pub border: Color,
     /// Light ground with dark content.
     pub light: bool,
-    /// Embedded font family the look writes in; `None` = the system UI font.
-    pub font: Option<&'static str>,
     /// What the island's body is made of.
     pub material: Material,
     /// The island's outline.
@@ -79,7 +77,6 @@ pub const CLASSIC: Look = Look {
     accent: None,
     border: palette::BORDER,
     light: false,
-    font: None,
     material: Material::Solid,
     shape: Shape::Notch,
     swaps: &[],
@@ -93,7 +90,6 @@ pub const GLASS_DARK: Look = Look {
     accent: None,
     border: Color::white(0.10),
     light: false,
-    font: None,
     material: Material::Glass,
     shape: Shape::Notch,
     swaps: &[],
@@ -107,7 +103,6 @@ pub const GLASS_LIGHT: Look = Look {
     accent: None,
     border: Color::black(0.08),
     light: true,
-    font: None,
     material: Material::Glass,
     shape: Shape::Notch,
     swaps: &[
@@ -131,7 +126,6 @@ pub const PILL: Look = Look {
     accent: None,
     border: Color::white(0.10),
     light: false,
-    font: None,
     material: Material::Solid,
     shape: Shape::Pill,
     swaps: &[],

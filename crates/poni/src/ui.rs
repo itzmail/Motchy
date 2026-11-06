@@ -360,11 +360,6 @@ impl<'a, 'g> Ui<'a, 'g> {
         }
     }
 
-    /// Single-line text field. Click to focus, Enter submits, Esc cancels.
-    pub fn text_input(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize) -> TextInputResp {
-        self.text_input_styled(id, r, buf, placeholder, max_chars, InputLook::Box)
-    }
-
     /// A list-row style field: no box until hovered/focused, a leading icon in
     /// the same column as list checkboxes (centred at x+18, text at x+36), and
     /// an accent focus ring.
