@@ -46,6 +46,9 @@ pub enum UsageCmd {
     SetKey { secret: &'static str, key: String },
     /// Forget a typed key.
     ClearKey(&'static str),
+    /// Start a service's own sign-in on this computer (Claude Code's
+    /// `claude auth login`, or the Claude app): `studio_usage::claude::sign_in`.
+    SignIn(ProviderId),
     /// Take a service's card off the tab.
     Hide(ProviderId),
     /// Put it back, even when nothing of it is on this computer (a service
@@ -60,6 +63,7 @@ impl std::fmt::Debug for UsageCmd {
             UsageCmd::Refresh => f.write_str("Refresh"),
             UsageCmd::SetKey { secret, .. } => write!(f, "SetKey({secret})"),
             UsageCmd::ClearKey(secret) => write!(f, "ClearKey({secret})"),
+            UsageCmd::SignIn(id) => write!(f, "SignIn({})", id.key()),
             UsageCmd::Hide(id) => write!(f, "Hide({})", id.key()),
             UsageCmd::Show(id) => write!(f, "Show({})", id.key()),
         }
