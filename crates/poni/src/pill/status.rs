@@ -207,7 +207,7 @@ mod tests {
     fn status_is_the_pill_themes_own() {
         assert_eq!(looks(Theme::Pill).last(), Some(&IdleStyle::Status));
         assert_eq!(shown(Theme::Pill, IdleStyle::Status), IdleStyle::Status);
-        for theme in [Theme::Classic, Theme::Oyen, Theme::Glass] {
+        for theme in [Theme::Classic, Theme::Glass] {
             assert_eq!(looks(theme), &looks(Theme::Pill)[..4], "{theme:?}");
             // They draw the clock for it, so a picker marks Clock.
             assert_eq!(shown(theme, IdleStyle::Status), IdleStyle::Clock, "{theme:?}");

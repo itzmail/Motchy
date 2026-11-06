@@ -255,8 +255,6 @@ pub struct PageUiState {
     pub before_settings: Option<PageKind>,
     /// Start with Windows, as last read off the UI thread (None until Settings first opens).
     pub autostart: Option<bool>,
-    /// Oyen theme: the music notes floating up in the media pill.
-    pub notes: crate::oyen::Notes,
     /// The Eyes look on a MacBook's notch: the pointer the eyes follow and
     /// the side of the camera they peek out from (`mac/notch.rs`).
     #[cfg(target_os = "macos")]
@@ -802,11 +800,7 @@ impl AppState {
     }
 
     /// Accent for media UI: art colour when available, else the system accent.
-    /// The Oyen theme keeps to Oyen's orange.
     pub fn media_accent(&self) -> Color {
-        if self.settings.theme == poni_core::settings::Theme::Oyen {
-            return self.accent;
-        }
         self.media.as_ref().and_then(|m| m.art_color).unwrap_or(self.accent)
     }
 }

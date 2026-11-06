@@ -7,6 +7,7 @@
 
 pub mod addons;
 pub mod applemusic;
+pub mod brand;
 pub mod datetime;
 pub mod frametime;
 pub mod geom;
@@ -18,7 +19,6 @@ pub mod lrclib;
 pub mod mediaremote;
 pub mod notifications;
 pub mod nowplaying;
-pub mod oyen;
 pub mod peek;
 pub mod pomodoro;
 pub mod power;

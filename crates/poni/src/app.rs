@@ -8,7 +8,6 @@ use crate::events::{AppEvent, AppleMusicStatus, EventSink, SendHwnd, WM_APP_APPB
 use crate::gfx::{px_rect, px_union, scale_about, union_rect, Canvas, Gfx, HitMask};
 use crate::icons::Icon;
 use crate::island::{Geom, Island, SHOULDER};
-use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::pill;
@@ -766,7 +765,7 @@ impl App {
     /// (a theme switch into or out of Pill, the self-test picking its theme
     /// after start, or the outline docking at the edge after rising back to
     /// it): lay the window out again for the new room, grown for the gap and
-    /// the shadow or given back, so Classic, Oyen and Glass keep exactly the
+    /// the shadow or given back, so Classic and Glass keep exactly the
     /// window they start with and Pill gets its own. Called every frame
     /// after the island steps; a layout only on that change.
     fn sync_room(&mut self) {
@@ -1124,7 +1123,7 @@ impl App {
                 }
                 if msg == WM_SETTINGCHANGE && self.st.settings.theme == Theme::Glass {
                     self.st.accent = theme_accent(Theme::Glass);
-                } else if msg == WM_SETTINGCHANGE && !oyen::on(self.st.settings.theme) {
+                } else if msg == WM_SETTINGCHANGE {
                     if let Some(a) = services::system_accent() {
                         self.st.accent = a;
                     }
@@ -3944,11 +3943,9 @@ impl App {
     }
 }
 
-/// Oyen's orange in his theme, Windows' accent colour otherwise.
+/// Windows' accent colour (its base shade under Glass).
 fn theme_accent(theme: Theme) -> Color {
-    if oyen::on(theme) {
-        oyen::ORANGE
-    } else if theme == Theme::Glass {
+    if theme == Theme::Glass {
         services::system_accent_base().unwrap_or(palette::BLUE)
     } else {
         services::system_accent().unwrap_or(palette::BLUE)

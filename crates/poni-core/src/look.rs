@@ -73,9 +73,6 @@ pub enum Shape {
     Pill,
 }
 
-const OYEN_ORANGE: Color = Color::hex(crate::oyen::ORANGE);
-const OYEN_FOLD: Color = Color::hex(crate::oyen::FOLD_ORANGE);
-
 pub const CLASSIC: Look = Look {
     ground: Color::black(1.0),
     ink: Color::white(1.0),
@@ -86,51 +83,6 @@ pub const CLASSIC: Look = Look {
     material: Material::Solid,
     shape: Shape::Notch,
     swaps: &[],
-};
-
-/// Oyen: warm cream paper, espresso ink, Oyen's orange, and Outfit (the Oyen
-/// Poni website's typeface) for every Latin letter.
-pub const OYEN: Look = Look {
-    ground: Color::hex(0xFFF1DE),
-    ink: Color::hex(0x2B1B10),
-    accent: Some(OYEN_ORANGE),
-    border: Color::rgba(0.55, 0.30, 0.10, 0.22),
-    light: true,
-    font: Some("Outfit"),
-    material: Material::Solid,
-    shape: Shape::Notch,
-    swaps: &[
-        Swap { from: OYEN_ORANGE, fill: OYEN_ORANGE, text: OYEN_FOLD },
-        Swap { from: palette::ORANGE, fill: OYEN_ORANGE, text: OYEN_FOLD },
-        Swap { from: palette::GREEN, fill: Color::hex(0x2DB45A), text: Color::hex(0x1B7F3E) },
-        Swap { from: palette::RED, fill: Color::hex(0xE5484D), text: Color::hex(0xC9302C) },
-        Swap { from: palette::BLUE, fill: Color::hex(0x2F7CF6), text: Color::hex(0x1A5FCC) },
-        Swap { from: palette::CYAN, fill: Color::hex(0x2AA5D6), text: Color::hex(0x0F7299) },
-        Swap { from: palette::PURPLE, fill: Color::hex(0xA552D8), text: Color::hex(0x8337B8) },
-        Swap { from: palette::YELLOW, fill: Color::hex(0xE8A33D), text: Color::hex(0xA8670A) },
-        Swap { from: palette::PINK, fill: Color::hex(0xF0477A), text: Color::hex(0xC92B5E) },
-    ],
-};
-
-/// Oyen around a MacBook's camera notch. The notch is black hardware that no
-/// pixel can colour, so a cream island would wear a black hole in its top
-/// edge: here the island is black like the notch (and Classic), and Oyen
-/// stays in everything on it: cream ink, his orange, Outfit, his face.
-pub const OYEN_NIGHT: Look = Look {
-    ground: Color::black(1.0),
-    ink: Color::hex(0xFFF1DE),
-    accent: Some(OYEN_ORANGE),
-    border: Color::rgba(1.0, 0.945, 0.871, 0.07),
-    light: false,
-    font: Some("Outfit"),
-    material: Material::Solid,
-    shape: Shape::Notch,
-    // His orange reads on black as it is, in fills and in text alike; the
-    // palette's other accents are made for a dark ground already.
-    swaps: &[
-        Swap { from: OYEN_ORANGE, fill: OYEN_ORANGE, text: OYEN_ORANGE },
-        Swap { from: palette::ORANGE, fill: OYEN_ORANGE, text: OYEN_ORANGE },
-    ],
 };
 
 /// Glass over a dark backdrop (and in Windows dark mode): white ink, the
@@ -190,20 +142,6 @@ pub const PILL: Look = Look {
 pub fn of(theme: Theme) -> &'static Look {
     match theme {
         Theme::Classic => &CLASSIC,
-        Theme::Oyen => &OYEN,
-        Theme::Glass => &GLASS_DARK,
-        Theme::Pill => &PILL,
-    }
-}
-
-/// The theme's look on a screen where the island wraps a camera notch (the
-/// Mac app on a MacBook): the island meets black hardware there, so Oyen
-/// goes black and Glass is the dark glass (with a black strip where it
-/// touches the notch, drawn by the Mac app).
-pub fn around_notch(theme: Theme) -> &'static Look {
-    match theme {
-        Theme::Classic => &CLASSIC,
-        Theme::Oyen => &OYEN_NIGHT,
         Theme::Glass => &GLASS_DARK,
         Theme::Pill => &PILL,
     }
@@ -265,68 +203,10 @@ mod tests {
     }
 
     #[test]
-    fn oyen_turns_greys_into_ink_on_cream() {
-        assert_eq!(OYEN.paint(Color::black(1.0)), OYEN.ground);
-        assert_eq!(OYEN.paint(Color::white(1.0)), OYEN.ink);
-        // White at 62 % keeps its opacity, now in ink.
-        assert_eq!(OYEN.paint(palette::TEXT_DIM), OYEN.ink.with_alpha(0.62));
-        // An opaque mid grey lands between the ground and the ink.
-        let g = OYEN.paint(Color::rgba(0.16, 0.16, 0.16, 1.0));
-        assert_eq!(g, Color::lerp(OYEN.ground, OYEN.ink, 0.16));
-        // The invisible hit-mask colour stays (nearly) invisible.
-        assert!(OYEN.paint(Color::black(1.0 / 255.0)).a < 0.01);
-    }
-
-    #[test]
-    fn oyen_swaps_accents_and_deepens_them_for_text() {
-        let fill = OYEN.paint(palette::ORANGE);
-        let text = OYEN.paint_text(palette::ORANGE);
-        assert_eq!(fill, OYEN_ORANGE);
-        assert_eq!(text, OYEN_FOLD);
-        assert!(text.luminance() < fill.luminance());
-        // Opacity survives the swap.
-        assert_eq!(OYEN.paint(palette::GREEN.mul_alpha(0.5)).a, 0.5);
-        // Colours the look doesn't know (album art, Oyen's face) pass through,
-        // and so does content on an accent fill.
-        let art = Color::hex(0x7A3EE0);
-        assert_eq!(OYEN.paint(art), art);
-        assert_eq!(OYEN.paint_text(palette::ON_ACCENT), palette::ON_ACCENT);
-    }
-
-    #[test]
-    fn oyen_around_a_notch_is_black_with_oyen_on_it() {
-        // The island's own black is the notch's black, exactly.
-        assert_eq!(OYEN_NIGHT.paint(palette::ISLAND), palette::ISLAND);
-        assert_eq!(OYEN_NIGHT.ground, CLASSIC.ground);
-        // White content becomes Oyen's cream, at the opacity it asked for.
-        assert_eq!(OYEN_NIGHT.paint(Color::white(1.0)), OYEN.ground);
-        assert_eq!(OYEN_NIGHT.paint(palette::TEXT_DIM), OYEN.ground.with_alpha(0.62));
-        // His orange in fills and text, bright enough on black.
-        assert_eq!(OYEN_NIGHT.paint(palette::ORANGE), OYEN_ORANGE);
-        assert_eq!(OYEN_NIGHT.paint_text(palette::ORANGE), OYEN_ORANGE);
-        assert!(OYEN_ORANGE.luminance() > 0.3);
-        // The palette's dark-ground accents and the content on them stay.
-        assert_eq!(OYEN_NIGHT.paint(palette::GREEN), palette::GREEN);
-        assert_eq!(OYEN_NIGHT.paint_text(palette::ON_ACCENT), palette::ON_ACCENT);
-        assert!(!OYEN_NIGHT.light);
-        assert_eq!(OYEN_NIGHT.font, OYEN.font);
-        assert_eq!(OYEN_NIGHT.material, Material::Solid);
-    }
-
-    #[test]
-    fn around_a_notch_only_oyen_changes() {
-        assert_eq!(*around_notch(Theme::Classic), CLASSIC);
-        assert_eq!(*around_notch(Theme::Oyen), OYEN_NIGHT);
-        assert_eq!(*around_notch(Theme::Glass), GLASS_DARK);
-        // Away from a notch (and on Windows) every theme keeps its look.
-        assert_eq!(*of(Theme::Oyen), OYEN);
-    }
-
-    #[test]
     fn pill_floats_and_paints_like_classic() {
         assert_eq!(PILL.shape, Shape::Pill);
         assert_eq!(*of(Theme::Pill), PILL);
-        for look in [&CLASSIC, &OYEN, &OYEN_NIGHT, &GLASS_DARK, &GLASS_LIGHT] {
+        for look in [&CLASSIC, &GLASS_DARK, &GLASS_LIGHT] {
             assert_eq!(look.shape, Shape::Notch);
         }
         // Black and white like Classic: what a page asks for is what it gets.
@@ -340,7 +220,6 @@ mod tests {
     #[test]
     fn glass_is_glass_and_the_others_are_solid() {
         assert_eq!(CLASSIC.material, Material::Solid);
-        assert_eq!(OYEN.material, Material::Solid);
         assert_eq!(GLASS_DARK.material, Material::Glass);
         assert_eq!(GLASS_LIGHT.material, Material::Glass);
         assert_eq!(*of(Theme::Glass), GLASS_DARK);

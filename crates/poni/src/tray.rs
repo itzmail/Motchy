@@ -93,11 +93,10 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
     MenuItem::Item { label: label.to_string(), cmd, checked }
 }
 
-/// An idle look as the menu names it. In the Oyen theme the eyes are Oyen's own.
-fn idle_label(s: IdleStyle, theme: Theme) -> &'static str {
+/// An idle look as the menu names it.
+fn idle_label(s: IdleStyle) -> &'static str {
     match s {
         IdleStyle::Clock => "Clock",
-        IdleStyle::Eyes if theme == Theme::Oyen => "Oyen",
         IdleStyle::Eyes => "Eyes",
         IdleStyle::Minimal => "Minimal",
         IdleStyle::Hidden => "Hidden until hover",
@@ -110,14 +109,14 @@ fn idle_label(s: IdleStyle, theme: Theme) -> &'static str {
 pub fn menu_items(s: &Settings, pinned: bool, recorder: bool, update: UpdateLine) -> Vec<MenuItem> {
     // The look the theme draws is the one checked: outside Pill, Status shows the clock.
     let shown = crate::pill::status::shown(s.theme, s.idle_style);
-    let style = |st: IdleStyle| item(idle_label(st, s.theme), MenuCmd::ToggleIdleStyle(st), shown == st);
+    let style = |st: IdleStyle| item(idle_label(st), MenuCmd::ToggleIdleStyle(st), shown == st);
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
     let mut items = vec![
         item("Advanced settings…", MenuCmd::ShowSettings, false),
         MenuItem::Separator,
         item("Keep island open", MenuCmd::TogglePinned, pinned),
-        MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)] },
+        MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)] },
         // The status bar is listed only in Pill, as on the Settings page: the
         // other themes would draw the clock for it.
         MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
@@ -350,7 +349,7 @@ mod tests {
         assert_eq!(idle_choices(&pill).last(), Some(&("Status bar".to_string(), true)));
         // Another theme draws the clock for the status bar: Clock is checked,
         // and Status comes back with Pill.
-        for theme in [Theme::Classic, Theme::Oyen, Theme::Glass] {
+        for theme in [Theme::Classic, Theme::Glass] {
             let s = Settings { theme, ..pill.clone() };
             let choices = idle_choices(&s);
             assert_eq!(choices.len(), 4, "{theme:?}");

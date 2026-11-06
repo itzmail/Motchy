@@ -67,8 +67,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, upda
     let style = |st: IdleStyle| {
         let label = match st {
             IdleStyle::Clock => "Clock",
-            // In the Oyen theme the eyes are Oyen's own.
-            IdleStyle::Eyes if s.theme == Theme::Oyen => "Oyen",
             IdleStyle::Eyes => "Eyes",
             IdleStyle::Minimal => "Minimal",
             IdleStyle::Hidden => "Hidden until hover",
@@ -82,7 +80,7 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, upda
         item("Keep island open", MenuCmd::TogglePinned, pinned),
         MenuItem::Sub {
             label: "Theme".into(),
-            items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)],
+            items: vec![theme("Classic", Theme::Classic), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)],
         },
         MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
@@ -250,7 +248,7 @@ fn mark_image(mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
     let bmp = crate::gfx::Bitmap::new(px, px, SCALE)?;
     let ctx: &CGContext = bmp.ctx();
     let parse = |d: &str| poni_core::svgpath::parse(d).ok().map(|segs| crate::gfx::cg_path(&segs));
-    let (head, fold, eyes) = (parse(poni_core::oyen::mark::HEAD)?, parse(poni_core::oyen::mark::FOLD)?, parse(poni_core::oyen::mark::EYES_SMALL)?);
+    let (head, fold, eyes) = (parse(poni_core::brand::HEAD)?, parse(poni_core::brand::FOLD)?, parse(poni_core::brand::EYES_SMALL)?);
     // The mark is 104 units wide, centred on y -11.04 in its own units.
     let s = 16.5 / 104.0;
     CGContext::translate_ctm(Some(ctx), PT / 2.0, PT / 2.0 + 11.04 * s);

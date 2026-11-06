@@ -325,9 +325,8 @@ const CLOSE: [(u32, &str); 3] = [(0, "At once"), (400, "Short"), (1000, "Long")]
 const DISPLAYS: [(MonitorChoice, &str); 2] = [(MonitorChoice::Primary, "Main display"), (MonitorChoice::Cursor, "Under the pointer")];
 const FULLSCREEN: [(bool, &str); 2] = [(true, "Hide"), (false, "Stay on top")];
 const SOUNDS: [(PrayerSound, &str); 3] = [(PrayerSound::Adzan, "Adzan"), (PrayerSound::Tone, "Tone"), (PrayerSound::Silent, "Silent")];
-const THEMES: [(Theme, &str, &str); 4] = [
+const THEMES: [(Theme, &str, &str); 3] = [
     (Theme::Classic, "Classic", "A black island at the top edge"),
-    (Theme::Oyen, "Oyen", "Oyen lives in the island"),
     (Theme::Glass, "Glass", "Frosted glass over your screen"),
     (Theme::Pill, "Pill", "Floats just below the top edge"),
 ];
@@ -353,10 +352,9 @@ fn nearest(list: &[(u32, &str)], ms: u32) -> Option<usize> {
     list.iter().enumerate().min_by_key(|(_, (v, _))| v.abs_diff(ms)).map(|(i, _)| i)
 }
 
-fn idle_name(s: IdleStyle, theme: Theme) -> &'static str {
+fn idle_name(s: IdleStyle) -> &'static str {
     match s {
         IdleStyle::Clock => "Clock",
-        IdleStyle::Eyes if theme == Theme::Oyen => "Oyen",
         IdleStyle::Eyes => "Eyes",
         IdleStyle::Minimal => "Minimal",
         IdleStyle::Hidden => "Hidden",
@@ -398,7 +396,7 @@ pub fn blocks(section: Section, st: &AppState) -> Vec<Block> {
         }
         Section::Appearance => {
             let looks = status::looks(s.theme);
-            let look_names = looks.iter().map(|l| idle_name(*l, s.theme)).collect();
+            let look_names = looks.iter().map(|l| idle_name(*l)).collect();
             let shown = status::shown(s.theme, s.idle_style);
             vec![
                 Block::Themes,
@@ -1070,7 +1068,7 @@ fn draw_close(ui: &mut Ui, card: Rect, m: &mut Motion) -> bool {
 /// `top`: room for the Mac's window buttons.
 fn draw_sidebar(ui: &mut Ui, st: &mut AppState, side: Rect, section: Section, top: f32, m: &mut Motion) -> Option<Section> {
     let icon_c = Point::new(side.x + 20.0 + 12.0, side.y + top + 32.0);
-    crate::oyen::app_icon(ui.c, icon_c, 24.0);
+    crate::brand::app_icon(ui.c, icon_c, 24.0);
     ui.c.text("Advanced settings", Rect::new(icon_c.x + 20.0, side.y + top + 20.0, side.w - 60.0, 24.0), &TextStyle::headline());
     let list = sections(st);
     let about_at = side.bottom() - 12.0 - NAV_H;
@@ -1105,7 +1103,7 @@ fn draw_sidebar(ui: &mut Ui, st: &mut AppState, side: Rect, section: Section, to
         }
         let tile = Rect::new(r.x + 8.0, r.center().y - NAV_TILE / 2.0, NAV_TILE, NAV_TILE);
         if *s == Section::About {
-            crate::oyen::app_icon(ui.c, tile.center(), NAV_TILE);
+            crate::brand::app_icon(ui.c, tile.center(), NAV_TILE);
         } else {
             ui.c.fill_rrect(tile, 6.0, s.tint());
             ui.c.icon(s.icon(), Rect::from_center(tile.center(), 14.0, 14.0), palette::ON_ACCENT);
@@ -1392,7 +1390,7 @@ fn draw_version(ui: &mut Ui, st: &mut AppState, r: Rect, view: Rect, sf: &Surfac
     fill_group(ui, r, sf.group);
     let head = Rect::new(r.x + ROW_PAD, r.y, r.w - 2.0 * ROW_PAD, 72.0);
     let cy = head.center().y;
-    crate::oyen::app_icon(ui.c, Point::new(head.x + 20.0, cy), 40.0);
+    crate::brand::app_icon(ui.c, Point::new(head.x + 20.0, cy), 40.0);
     let tx = head.x + 54.0;
     let clickable = visible(r, view).is_some_and(|v| v.h >= r.h - 0.5);
     let check = clickable.then(|| crate::pages::settings::check_slot(ui, st, head)).flatten();
@@ -1503,7 +1501,7 @@ fn draw_themes(ui: &mut Ui, st: &mut AppState, r: Rect, view: Rect, sf: &Surface
 }
 
 /// A theme's island on a small screen: hanging from its top edge, glass,
-/// with Oyen's eyes, or floating below it. Drawn as it is, in either mode.
+/// or floating below it. Drawn as it is, in either mode.
 fn draw_theme_preview(c: &mut Canvas, theme: Theme, screen: Rect) {
     c.clip(screen);
     c.fill_rrect(screen, 7.0, WALLPAPER);
@@ -1511,21 +1509,14 @@ fn draw_theme_preview(c: &mut Canvas, theme: Theme, screen: Rect) {
     let cx = screen.center().x;
     let clock = TextStyle::caption().weight(Weight::Semibold).tabular().center();
     match theme {
-        Theme::Classic | Theme::Oyen | Theme::Glass => {
+        Theme::Classic | Theme::Glass => {
             let body = Rect::new(cx - 34.0, screen.y, 68.0, 20.0);
             let (fill, border) = match theme {
                 Theme::Glass => (Color::white(0.30), Some(Color::white(0.45))),
                 _ => (palette::ISLAND, None),
             };
             c.notch(body, 9.0, 5.0, fill, border);
-            if theme == Theme::Oyen {
-                // Oyen's eyes peek over the island's edge.
-                for dx in [-6.0, 6.0] {
-                    c.fill_rrect(Rect::from_center(Point::new(cx + dx, body.center().y), 5.0, 8.0), 2.5, palette::ORANGE);
-                }
-            } else {
-                c.text("10:08", body, &clock.color(palette::TEXT));
-            }
+            c.text("10:08", body, &clock.color(palette::TEXT));
         }
         Theme::Pill => {
             let body = Rect::new(cx - 36.0, screen.y + 7.0, 72.0, 20.0);
@@ -1665,8 +1656,6 @@ mod tests {
         assert!(!looks(&st).contains(&"Status"));
         st.settings.theme = Theme::Pill;
         assert!(looks(&st).contains(&"Status"));
-        st.settings.theme = Theme::Oyen;
-        assert!(looks(&st).contains(&"Oyen"));
     }
 
     #[test]

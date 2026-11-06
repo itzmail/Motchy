@@ -80,13 +80,13 @@ const CHIP_ICON_GAP: f32 = 5.0;
 const CHIP_GAP: f32 = 6.0;
 
 // Glass: on Windows from a copy of the screen, on a Mac macOS's own glass.
-const THEMES: [(Theme, &str); 4] = [(Theme::Classic, "Classic"), (Theme::Oyen, "Oyen"), (Theme::Glass, "Glass"), (Theme::Pill, "Pill")];
+const THEMES: [(Theme, &str); 3] = [(Theme::Classic, "Classic"), (Theme::Glass, "Glass"), (Theme::Pill, "Pill")];
 
-/// An idle look's name in the picker (`eyes` is Oyen in his theme).
-fn idle_name(s: IdleStyle, eyes: &'static str) -> &'static str {
+/// An idle look's name in the picker.
+fn idle_name(s: IdleStyle) -> &'static str {
     match s {
         IdleStyle::Clock => "Clock",
-        IdleStyle::Eyes => eyes,
+        IdleStyle::Eyes => "Eyes",
         IdleStyle::Minimal => "Minimal",
         IdleStyle::Hidden => "Hidden",
         IdleStyle::Status => "Status",
@@ -155,9 +155,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let theme_names: Vec<&str> = THEMES.iter().map(|t| t.1).collect();
     let theme_sel = THEMES.iter().position(|t| t.0 == st.settings.theme).unwrap_or(0);
     let looks = status::looks(st.settings.theme);
-    // In the Oyen theme the eyes are Oyen's own (as in the tray menu).
-    let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
-    let look_names: Vec<&str> = looks.iter().map(|s| idle_name(*s, eyes)).collect();
+    let look_names: Vec<&str> = looks.iter().map(|s| idle_name(*s)).collect();
     let look_sel = looks.iter().position(|s| *s == status::shown(st.settings.theme, st.settings.idle_style)).unwrap_or(0);
     // Side by side under their labels when both fit their columns, each
     // closed up only as far as it needs; else a row each. Whether they fit is

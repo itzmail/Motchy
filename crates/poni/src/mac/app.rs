@@ -20,7 +20,6 @@ use crate::icons::Icon;
 use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
 use crate::menubar::{Login, MenuBar, MenuCmd};
 use crate::notch::{self, Fit, Notch};
-use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::pill;
@@ -542,7 +541,7 @@ impl App {
         st.now = clock::mono();
         st.local = clock::local_now();
         st.unix = clock::unix_now();
-        st.accent = theme_accent(st.settings.theme);
+        st.accent = theme_accent();
         let saved_settings = st.settings.clone();
         let smoke = smoke_dir.map(Smoke::new);
         App {
@@ -886,7 +885,7 @@ impl App {
             s.view.dirty = true;
         }
         if before.theme != self.st.settings.theme {
-            self.st.accent = theme_accent(self.st.settings.theme);
+            self.st.accent = theme_accent();
         }
         // The Pill theme's window keeps room for the gap above the island.
         if pill::on(before.theme) != pill::on(self.st.settings.theme) {
@@ -1980,13 +1979,9 @@ impl App {
         activities::collapsed_mode(&self.st)
     }
 
-    /// How the island paints: the theme's look, or around a notch the one
-    /// that meets its black (Oyen goes black there).
+    /// How the island paints: the theme's look.
     fn look(&self) -> &'static Look {
-        match self.screen.notch {
-            Some(_) => poni_core::look::around_notch(self.st.settings.theme),
-            None => poni_core::look::of(self.st.settings.theme),
-        }
+        poni_core::look::of(self.st.settings.theme)
     }
 
     /// The resting island is out of sight: hidden until hover, or inside the notch.
@@ -3365,7 +3360,7 @@ impl App {
                 services::media::smoke_rest();
             }
             "now-playing-browser" => services::media::smoke_sound(),
-            // The themes on the real window: Glass, then Oyen and Glass
+            // The themes on the real window: Glass, then Classic and Glass
             // around a notch (one the screen pretends to have; CI's Macs
             // have none), open and resting in the menu bar's line.
             "glass-open" => {
@@ -3373,7 +3368,7 @@ impl App {
                 self.st.page = PageKind::Today;
                 self.expand();
             }
-            "glass-collapsed" | "notch-oyen-collapsed" | "pill-collapsed" => self.collapse(),
+            "glass-collapsed" | "notch-classic-collapsed" | "pill-collapsed" => self.collapse(),
             // Around the notch Pill's music floats below the menu bar even with
             // no line to sing (as in an intro, a break or a pause): the song
             // plays on with its lyrics dropped, and no timer.
@@ -3429,7 +3424,7 @@ impl App {
                 self.on_pointer(Point::new(self.cx, pill::TOP_GAP / 2.0));
                 self.cancel_hover();
             }
-            "notch-oyen-open" => {
+            "notch-classic-open" => {
                 // The pointer from pill-hover leaves first, and the timer set
                 // aside for pill-music-cost comes back.
                 self.leave();
@@ -3438,7 +3433,7 @@ impl App {
                 }
                 window::fake_notch(Some(Notch::MACBOOK));
                 self.refresh_screen();
-                self.on_menu(MenuCmd::SetTheme(Theme::Oyen));
+                self.on_menu(MenuCmd::SetTheme(Theme::Classic));
                 self.st.page = PageKind::Today;
                 self.expand();
             }
@@ -3691,10 +3686,10 @@ impl App {
                 let what = glass::kind().unwrap_or("no glass view");
                 Some(("glass-theme", glass::shown() && self.look().material == Material::Glass, format!("{what} under the open island, {notch}")))
             }
-            "notch-oyen-open" | "notch-oyen-collapsed" => {
+            "notch-classic-open" | "notch-classic-collapsed" => {
                 let look = self.look();
-                let ok = self.screen.notch.is_some() && *look == poni_core::look::OYEN_NIGHT && !glass::shown();
-                Some(("oyen-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
+                let ok = self.screen.notch.is_some() && *look == poni_core::look::CLASSIC && !glass::shown();
+                Some(("classic-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
             }
             "pill-open" | "pill-collapsed" | "notch-pill-open" | "notch-pill-collapsed" => Some(self.pill_report()),
             "notch-pill-music" => {
@@ -4067,13 +4062,9 @@ fn system_report(st: &AppState) -> (bool, String) {
     (ok, detail)
 }
 
-/// Oyen's orange in his theme, the Mac's accent colour otherwise.
-pub(crate) fn theme_accent(theme: Theme) -> Color {
-    if oyen::on(theme) {
-        oyen::ORANGE
-    } else {
-        services::system_accent().unwrap_or(palette::BLUE)
-    }
+/// The Mac's accent colour.
+pub(crate) fn theme_accent() -> Color {
+    services::system_accent().unwrap_or(palette::BLUE)
 }
 
 /// Three things to drop on the Shelf in the smoke test: a picture, a text
@@ -4173,8 +4164,8 @@ const SMOKE_STEPS: [&str; 64] = [
     "pill-collapsed",
     "pill-hover",
     "pill-music-cost",
-    "notch-oyen-open",
-    "notch-oyen-collapsed",
+    "notch-classic-open",
+    "notch-classic-collapsed",
     "notch-glass-open",
     "notch-pill-open",
     "notch-pill-music",

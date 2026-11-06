@@ -1,4 +1,4 @@
-//! `poni --render <dir> [--theme classic|oyen|glass|pill] [--notch]`: draw the island's
+//! `poni --render <dir> [--theme classic|glass|pill] [--notch]`: draw the island's
 //! states with sample data into PNGs, offscreen, through the Mac renderer.
 //! CI runs it on a Mac with no notch and no person at the screen, so this is
 //! how the Mac drawing gets looked at: every page and activity, each theme,
@@ -231,7 +231,6 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
         return 2;
     }
     let theme = match args.iter().position(|a| a == "--theme").and_then(|i| args.get(i + 1)).map(|s| s.as_str()) {
-        Some("oyen") => Theme::Oyen,
         Some("glass") => Theme::Glass,
         Some("pill") => Theme::Pill,
         _ => Theme::Classic,
@@ -239,7 +238,6 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
     let notch = args.iter().any(|a| a == "--notch").then_some(Notch::MACBOOK);
     let name = match theme {
         Theme::Classic => "",
-        Theme::Oyen => "-oyen",
         Theme::Glass => "-glass",
         Theme::Pill => "-pill",
     };
@@ -351,7 +349,7 @@ fn render_settings(gfx: &mut Gfx, section: crate::settings_window::Section, them
     let (w_px, h_px) = ((w * SCALE) as usize, (h * SCALE) as usize);
     let bmp = Bitmap::new(w_px, h_px, SCALE).ok_or("no bitmap")?;
     let mut st = AppState::new(Settings { theme, hide_in_fullscreen: !on_top, ..Settings::default() }, Store::default());
-    st.accent = crate::app::theme_accent(theme);
+    st.accent = crate::app::theme_accent();
     st.ui.autostart = Some(true);
     let mut view = crate::settings_window::View::new(section);
     let frame = crate::settings_window::Frame { card: Rect::new(0.0, 0.0, w, h), own_chrome: false, top: TITLEBAR, still: true };
@@ -394,7 +392,7 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
     let cell_h = (notch.map_or(0.0, |n| n.h) + crate::pill::TOP_GAP + ends[1].1.h * 1.06 + 28.0).ceil();
     let (w_px, h_px) = ((2.0 * cell_w * STRIP_SCALE).ceil() as usize, (FRAMES.len() as f32 * cell_h * STRIP_SCALE).ceil() as usize);
     let bmp = Bitmap::new(w_px, h_px, STRIP_SCALE).ok_or("no bitmap context")?;
-    let look = if notch.is_some() { poni_core::look::around_notch(theme) } else { poni_core::look::of(theme) };
+    let look = poni_core::look::of(theme);
     for (col, (from, to)) in [(0usize, 1usize), (1, 0)].into_iter().enumerate() {
         let (_, g_from, gap_from) = ends[from];
         let (to_mode, g_to, gap_to) = ends[to];
@@ -496,7 +494,7 @@ fn render_peek(gfx: &mut Gfx, theme: Theme, n: Notch, path: &Path) -> Result<(),
     let frames = (WAY[WAY.len() - 1].0 * FPS).round() as usize + 1;
     let (w_px, h_px) = ((CELL.0 * SCALE).ceil() as usize, (frames as f32 * CELL.1 * SCALE).ceil() as usize);
     let bmp = Bitmap::new(w_px, h_px, SCALE).ok_or("no bitmap context")?;
-    let look = poni_core::look::around_notch(theme);
+    let look = poni_core::look::of(theme);
     let at = |t: f64| {
         let i = WAY.iter().rposition(|w| w.0 <= t).unwrap_or(0).min(WAY.len() - 2);
         let (a, b) = (WAY[i], WAY[i + 1]);
@@ -631,7 +629,7 @@ fn base_state(theme: Theme) -> AppState {
     st.now = NOW_MONO;
     st.unix = NOW_UNIX;
     st.local = LocalDateTime { year: 2026, month: 10, day: 24, hour: 9, minute: 41, second: 0 };
-    st.accent = if theme == Theme::Oyen { crate::oyen::ORANGE } else { palette::BLUE };
+    st.accent = palette::BLUE;
     st.volume = VolumeState { level: 0.64, muted: false, known: true };
     st.power = PowerState { has_battery: true, percent: 76, charging: false, on_ac: false, saver: false };
     st.stats = SysStats { valid: true, cpu: 0.23, mem_used: 9 << 30, mem_total: 16 << 30, disk_free: 212 << 30, disk_total: 476 << 30, uptime_s: 3 * 86_400 + 4 * 3600 };
@@ -938,7 +936,7 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
 
     // The island, drawn by the app's own content code (around a notch in
     // the look that meets its black).
-    let look = if notch.is_some() { poni_core::look::around_notch(theme) } else { poni_core::look::of(theme) };
+    let look = poni_core::look::of(theme);
     gfx.set_look(look);
     {
         let mut c = gfx.canvas(bmp.ctx());
@@ -986,7 +984,7 @@ fn warm_up(gfx: &mut Gfx, st: &mut AppState, mode: Mode, notch: Option<Notch>, g
     let bmp = Bitmap::new((w * SCALE).ceil() as usize, (h * SCALE).ceil() as usize, SCALE).ok_or("no bitmap context")?;
     let body = island.body_rect_at(w / 2.0);
     let theme = st.settings.theme;
-    gfx.set_look(if notch.is_some() { poni_core::look::around_notch(theme) } else { poni_core::look::of(theme) });
+    gfx.set_look(poni_core::look::of(theme));
     let mut c = gfx.canvas(bmp.ctx());
     let mut input = Input::default();
     if hovering {

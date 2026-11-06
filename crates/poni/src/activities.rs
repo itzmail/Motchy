@@ -8,7 +8,6 @@
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::Geom;
-use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::state::{AppState, HudKind, InlineAction, Notice};
 use crate::ui::{wid, PillStyle, Ui, PILL_SMALL};
@@ -70,12 +69,6 @@ const BOLT_INSET: f32 = BOLT * 5.0 / 24.0;
 const BOLT_VISIBLE: f32 = BOLT * 14.0 / 24.0;
 /// Gap between the idle clock and its battery badge.
 const BADGE_GAP: f32 = 6.0;
-/// Oyen theme: the head's width (DIPs) in the idle "Oyen" look, beside the
-/// idle clock and in the media pill, and the clock pill's extra width for him.
-const OYEN_IDLE_W: f32 = 30.0;
-const OYEN_CLOCK_W: f32 = 22.0;
-const OYEN_MEDIA_W: f32 = 24.0;
-const OYEN_CLOCK_LEAD: f32 = 12.0 + OYEN_CLOCK_W;
 /// The countdown before a prayer: the moon, then "Maghrib 10 min" (152,
 /// its words' room), then its OK.
 const PRAYER_W: f32 = 152.0 + PRAYER_OK_ROOM;
@@ -224,12 +217,9 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
                     Some(ClockBadge::Low(_)) => 34.0,
                     None => 0.0,
                 };
-                let lead = if oyen::on(st.settings.theme) { OYEN_CLOCK_LEAD } else { 0.0 };
-                Geom::new(base + badge + lead, 30.0, 14.0)
+                Geom::new(base + badge, 30.0, 14.0)
             }
             IdleStyle::Minimal => Geom::new(150.0, 26.0, 12.0),
-            // A little taller than the eyes, so his ears clear the top edge.
-            IdleStyle::Eyes if oyen::on(st.settings.theme) => Geom::new(104.0, 36.0, 16.0),
             IdleStyle::Eyes => Geom::new(118.0, 30.0, 14.0),
             IdleStyle::Hidden => hidden_strip(),
         },
@@ -274,16 +264,13 @@ fn hidden_strip() -> Geom {
 }
 
 /// Needs continuous ambient frames (near 60 fps): animated equalizer while music plays.
-/// A paused (lingering) pill is static, once Oyen's notes are gone.
+/// A paused (lingering) pill is static.
 pub fn is_live(m: &Mode, st: &AppState) -> bool {
     if let Some(live) = crate::pill::is_live(m, st) {
         return live;
     }
     let Some(media) = st.media.as_ref() else { return false };
     match m {
-        Mode::Activity(Activity::Media) if oyen::on(st.settings.theme) => {
-            oyen::music_moving(st.now, media.is_playing(), st.media_paused_at, &st.ui.notes)
-        }
         Mode::Activity(Activity::Media) | Mode::Activity(Activity::MediaTimer) => media.is_playing(),
         _ => false,
     }
@@ -300,11 +287,7 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
             next = Some(next.map_or(t, |n: f64| n.min(t)));
         }
     };
-    if *m == Mode::Idle && oyen_idle(st) {
-        if !night(st) {
-            consider(oyen::next_rest_move(now));
-        }
-    } else if *m == Mode::Idle && st.settings.idle_style == IdleStyle::Eyes {
+    if *m == Mode::Idle && st.settings.idle_style == IdleStyle::Eyes {
         let phase = now % BLINK_PERIOD;
         consider(if phase < BLINK_LEN { now - phase + BLINK_LEN } else { now - phase + BLINK_PERIOD });
     }
@@ -316,7 +299,7 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
     if *m == Mode::Activity(Activity::Media) {
         consider(st.ui.peek_until);
         // The next sung line: the equalizer's frames stop while paused or
-        // on battery saver, and Oyen's when his notes are gone.
+        // on battery saver.
         if let Some(t) = crate::pill::lyric::next_wake(st) {
             consider(t);
         }
@@ -329,26 +312,6 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
 
 const BLINK_PERIOD: f64 = 5.5;
 const BLINK_LEN: f64 = 0.14;
-
-/// Oyen shows in the idle pill (the clock and "Oyen" looks of his theme).
-fn oyen_idle(st: &AppState) -> bool {
-    oyen::on(st.settings.theme) && matches!(st.settings.idle_style, IdleStyle::Clock | IdleStyle::Status | IdleStyle::Eyes)
-}
-
-/// Oyen sleeps from midnight to five.
-pub(crate) fn night(st: &AppState) -> bool {
-    st.local.hour < 5
-}
-
-/// Oyen at rest in the idle pill; he follows the cursor while it hovers.
-fn draw_oyen_rest(ui: &mut Ui, st: &AppState, body: Rect, cx: f32, w: f32, bar_y: f32) {
-    let look = ui.input.mouse.map(|p| (p.x - body.center().x) / (body.w / 2.0));
-    let (frame, moving) = oyen::rest(st.now, night(st), look);
-    if moving {
-        ui.request_anim();
-    }
-    oyen::peek(ui.c, &frame, cx, bar_y, w, body.y + 1.0);
-}
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect) {
     if crate::pill::draw(ui, st, m, body) {
@@ -374,13 +337,6 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let cy = body.center().y;
     match st.settings.idle_style {
         IdleStyle::Clock | IdleStyle::Status => {
-            // Oyen theme: he peeks on the left and the clock centres in the rest.
-            let body = if oyen::on(st.settings.theme) {
-                draw_oyen_rest(ui, st, body, body.x + 11.0 + OYEN_CLOCK_W / 2.0, OYEN_CLOCK_W, body.bottom() - 5.0);
-                Rect::new(body.x + OYEN_CLOCK_LEAD, body.y, body.w - OYEN_CLOCK_LEAD, body.h)
-            } else {
-                body
-            };
             let time = fmt_clock(&st.local, st.settings.use_24h);
             let ts = TextStyle::body().weight(Weight::Semibold).tabular();
             let Some(badge) = clock_badge(st) else {
@@ -406,9 +362,6 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
                 ClockBadge::Low(_) => ui.c.text(&pct, Rect::new(x0, body.y, bw + 2.0, body.h), &pct_ts),
             }
             ui.c.text(&time, Rect::new(x0 + bw + BADGE_GAP, body.y, tw + 2.0, body.h), &ts);
-        }
-        IdleStyle::Eyes if oyen::on(st.settings.theme) => {
-            draw_oyen_rest(ui, st, body, body.center().x, OYEN_IDLE_W, body.bottom() - 7.0);
         }
         IdleStyle::Eyes => {
             // Eyes glance toward the cursor while hovering.
@@ -503,8 +456,7 @@ fn draw_peek(ui: &mut Ui, st: &AppState, x0: f32, x1: f32, body: Rect, alpha: f3
     });
 }
 
-/// Music, collapsed: the album art on the left, the equalizer (Oyen, in his
-/// theme) on the right, and between them the line being sung while the song
+/// Music, collapsed: the album art on the left, the equalizer on the right, and between them the line being sung while the song
 /// has synced lyrics, as in the Pill theme (`pill::media::middle`: the line,
 /// with its reading in Latin letters under it when it has one, or the title
 /// in the intro, the breaks and a new track's peek), else a new track's
@@ -519,19 +471,7 @@ pub fn draw_music(ui: &mut Ui, st: &mut AppState, body: Rect, words: bool) {
     let eq = Rect::new(body.right() - 34.0, cy - 8.0, 20.0, 16.0);
     let sings = words && crate::pill::lyric::sings(st);
     let alpha = if sings { 1.0 } else { peek_alpha(st, body.w) };
-    if oyen::on(st.settings.theme) {
-        // Oyen bops to the music where the equalizer would be, and a
-        // note floats up beside him on every beat (the ones on his
-        // left make way for the words: the sung line or the title).
-        let (cx, bar_y) = (body.right() - 26.0, body.bottom() - 5.0);
-        st.ui.notes.step(st.now, playing);
-        let sky = Rect::new(body.x, body.y + 1.0, body.w, body.h - 1.0);
-        oyen::notes(ui.c, &st.ui.notes, st.now, cx, bar_y, sky, 1.0 - alpha);
-        let f = oyen::music(st.now, playing, st.media_paused_at);
-        oyen::peek(ui.c, &f, cx, bar_y, OYEN_MEDIA_W, body.y + 1.0);
-    } else {
-        equalizer(ui, eq, st.media_accent(), playing, st.now);
-    }
+    equalizer(ui, eq, st.media_accent(), playing, st.now);
     if sings {
         use crate::pill::media::{middle, PAUSED_TEXT, TEXT_CLEAR};
         middle(ui, st, body, art.right() + TEXT_CLEAR, eq.x - TEXT_CLEAR, if playing { 1.0 } else { PAUSED_TEXT });
@@ -663,7 +603,7 @@ fn draw_hud(ui: &mut Ui, st: &mut AppState, body: Rect) {
             st.ui.hud_level = shown;
             ui.c.fill_rrect(bar, 3.0, palette::TRACK);
             if shown > 0.0 {
-                // Classic fills the level in white; a look with its own accent (Oyen's) in it.
+                // Classic fills the level in white; a look with its own accent in it.
                 let level = match ui.c.look().accent {
                     Some(a) => a,
                     None => Color::white(0.95),

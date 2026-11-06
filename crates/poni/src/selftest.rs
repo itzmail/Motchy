@@ -1068,7 +1068,7 @@ pub struct SelfTest {
     /// the next line on a held clock, one frame per refresh at that rate.
     scroll_hz: Option<f64>,
     dpi_applied: bool,
-    /// PONI_SELFTEST_THEME=oyen|glass|pill: run every scene in that theme.
+    /// PONI_SELFTEST_THEME=glass|pill: run every scene in that theme.
     theme: Theme,
     /// Glass: which page is under the island (PONI_SELFTEST_GLASS), the
     /// window size its backdrop was drawn for, and the scene last seeded.
@@ -1134,7 +1134,6 @@ impl SelfTest {
             scroll_hz: std::env::var("PONI_SELFTEST_SCROLL").ok().and_then(|v| v.trim().parse().ok()).filter(|hz: &f64| (20.0..=500.0).contains(hz)),
             dpi_applied: false,
             theme: match std::env::var("PONI_SELFTEST_THEME").map(|v| v.trim().to_ascii_lowercase()).as_deref() {
-                Ok("oyen") => Theme::Oyen,
                 Ok("glass") => Theme::Glass,
                 Ok("pill") => Theme::Pill,
                 _ => Theme::Classic,
@@ -1311,8 +1310,8 @@ impl SelfTest {
                 let steps = steps + 1;
                 let waited = now - since;
                 let timed_out = waited > self.settle_limit(app);
-                // No picture mid-blink: the eyes, and Oyen in the Oyenza tab.
-                let blinking = (scene == Scene::IdleEyes && mid_blink()) || (scene.expanded() && crate::oyen::mid_rest_move(clock::mono(), 0.3));
+                // No picture mid-blink.
+                let blinking = scene == Scene::IdleEyes && mid_blink();
                 let ready = steps >= MIN_STEPS && stable >= STABLE_STEPS && !blinking;
                 if ready || timed_out {
                     self.capture(app, i, !timed_out || settled, waited);
@@ -1715,7 +1714,7 @@ impl SelfTest {
         };
         if st.settings.theme != self.theme {
             st.settings.theme = self.theme;
-            st.accent = if self.theme == Theme::Oyen { crate::oyen::ORANGE } else { palette::BLUE };
+            st.accent = palette::BLUE;
         }
         if let Some(run) = self.glass {
             // What's under the window: drawn again whenever the window grows.
