@@ -219,6 +219,21 @@ pub struct SyncView {
     pub last_day: String,
     /// Why the last attempt failed, empty after a good one.
     pub error: String,
+    /// Whether the repository answers (`git ls-remote`), for Settings.
+    pub check: RepoCheck,
+}
+
+/// Whether the person's repository is there to talk to.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum RepoCheck {
+    /// Not asked yet this run.
+    #[default]
+    Unknown,
+    Checking,
+    /// It answered, at this time (unix seconds).
+    Connected(i64),
+    /// It didn't: one line, without the address.
+    Failed(String),
 }
 
 /// What the app knows about new versions.
@@ -254,6 +269,10 @@ pub enum Said {
 #[derive(Clone, Debug, Default)]
 pub struct PageUiState {
     pub task_input: String,
+    /// Settings' repository field: what is typed, and whether it shows
+    /// while a repository is already set (Change).
+    pub sync_url: String,
+    pub sync_editing: bool,
     pub task_scroll: f32,
     pub shelf_scroll: f32,
     /// Smoothly animated lyric scroll position (line index as float).

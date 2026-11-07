@@ -25,7 +25,7 @@ use crate::icons::Icon;
 use crate::pages::settings::picker_width;
 use crate::pages::PageKind;
 use crate::pill::status;
-use crate::state::AppState;
+use crate::state::{AppState, RepoCheck};
 use crate::ui::{wid, wid_n, CursorKind, Hit, Input, MouseButton, PillStyle, Ui, PILL_GAP, PILL_SMALL};
 use crate::version::VERSION;
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -53,6 +53,8 @@ const NAV_TILE: f32 = 22.0;
 const ROW_H: f32 = 40.0;
 const ROW_H_SUB: f32 = 52.0;
 const ROW_PAD: f32 = 14.0;
+/// A text field's line, under its label.
+const FIELD_H: f32 = 34.0;
 const GROUP_TITLE_H: f32 = 24.0;
 const GROUP_GAP: f32 = 18.0;
 const GROUP_R: f32 = 10.0;
@@ -262,6 +264,8 @@ pub enum Key {
     CodingTrack,
     CodingPlugins,
     SyncSet,
+    SyncChange,
+    SyncCheck,
     SyncNow,
     SyncOff,
     SettingsFile,
@@ -281,6 +285,9 @@ pub enum Ctl {
     Stepper(String),
     /// A button with this label.
     Button(&'static str),
+    /// A field to type in, on a line of its own under the label; the text
+    /// is the placeholder.
+    Text(&'static str),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -321,6 +328,10 @@ pub enum Act {
     Pick(usize),
     Step(i32),
     Press,
+    /// Enter in a field.
+    Submit,
+    /// Esc in a field.
+    Cancel,
 }
 
 /// How long the pointer rests on the island before it opens (ms).
@@ -395,12 +406,18 @@ fn coding_rows(st: &AppState) -> Vec<Item> {
     rows
 }
 
-/// The Sync group: the person's own git repository, set by pasting its
-/// address (a field would need the keyboard; people copy it from the host).
+/// The Sync group: the person's own git repository, typed or pasted into a
+/// field, and whether it answers.
 fn sync_rows(st: &AppState) -> Vec<Item> {
-    let Some(url) = st.settings.sync.repo_url.as_deref() else {
-        let sub = if st.sync.error.is_empty() { "Copy the repository's address (HTTPS or SSH), then press Paste".to_string() } else { st.sync.error.clone() };
-        return vec![item(Key::SyncSet, "Git repository", Some(&sub), Ctl::Button("Paste address"))];
+    let Some(url) = st.settings.sync.repo_url.as_deref().filter(|_| !st.ui.sync_editing) else {
+        let sub = if st.sync.error.is_empty() { "The address of your private repository, HTTPS or SSH, then Enter".to_string() } else { st.sync.error.clone() };
+        return vec![item(Key::SyncSet, "Git repository", Some(&sub), Ctl::Text("git@github.com:you/motchy-data.git"))];
+    };
+    let link = match &st.sync.check {
+        RepoCheck::Unknown => "Not checked yet".to_string(),
+        RepoCheck::Checking => "Checking…".to_string(),
+        RepoCheck::Connected(_) => "Connected".to_string(),
+        RepoCheck::Failed(e) => format!("Can't reach it: {e}"),
     };
     let state = if st.sync.running {
         "Syncing…".to_string()
@@ -412,7 +429,8 @@ fn sync_rows(st: &AppState) -> Vec<Item> {
         "Not synced yet".to_string()
     };
     vec![
-        item(Key::SyncSet, "Git repository", Some(url), Ctl::Button("Paste new")),
+        item(Key::SyncChange, "Git repository", Some(url), Ctl::Button("Change")),
+        item(Key::SyncCheck, "Connection", Some(&link), Ctl::Button("Check")),
         item(Key::SyncNow, "Sync now", Some(&state), Ctl::Button("Sync now")),
         item(Key::SyncOff, "Stop syncing", Some("The local copy stays; nothing more is sent"), Ctl::Button("Remove")),
     ]
@@ -672,7 +690,29 @@ pub fn apply(st: &mut AppState, key: Key, act: Act) {
             return;
         }
         Key::SyncSet => {
-            st.cmd(Command::SyncPaste);
+            match act {
+                Act::Submit => {
+                    let url = st.ui.sync_url.clone();
+                    st.cmd(Command::SyncUrl(url));
+                }
+                // Esc: back to the repository that was set (none: the field stays).
+                Act::Cancel => {
+                    st.ui.sync_editing = false;
+                    st.ui.sync_url.clear();
+                    st.sync.error.clear();
+                }
+                _ => {}
+            }
+            return;
+        }
+        Key::SyncChange => {
+            st.ui.sync_url = st.settings.sync.repo_url.clone().unwrap_or_default();
+            st.ui.sync_editing = true;
+            st.sync.error.clear();
+            return;
+        }
+        Key::SyncCheck => {
+            st.cmd(Command::SyncCheck);
             return;
         }
         Key::SyncNow => {
@@ -682,6 +722,9 @@ pub fn apply(st: &mut AppState, key: Key, act: Act) {
         Key::SyncOff => {
             s.sync.repo_url = None;
             st.sync.error.clear();
+            st.sync.check = RepoCheck::Unknown;
+            st.ui.sync_editing = false;
+            st.ui.sync_url.clear();
         }
         Key::SettingsFile => {
             st.cmd(Command::OpenPath(crate::paths::settings_path().to_string_lossy().into_owned()));
@@ -1182,7 +1225,9 @@ fn visible(r: Rect, view: Rect) -> Option<Rect> {
 }
 
 fn row_h(it: &Item) -> f32 {
-    if it.sub.is_some() {
+    if matches!(it.ctl, Ctl::Text(_)) {
+        ROW_H_SUB + FIELD_H
+    } else if it.sub.is_some() {
         ROW_H_SUB
     } else {
         ROW_H
@@ -1238,7 +1283,7 @@ fn draw_block(ui: &mut Ui, st: &mut AppState, b: &Block, bi: usize, at: Rect, vi
                 if i > 0 {
                     ui.c.fill_rect(Rect::new(row.x + ROW_PAD, row.y, row.w - ROW_PAD, px), RULE);
                 }
-                if let Some(act) = draw_row(ui, it, (bi, i), row, view, accent, (i == 0, i + 1 == items.len()), m) {
+                if let Some(act) = draw_row(ui, it, (bi, i), row, view, accent, (i == 0, i + 1 == items.len()), m, &mut st.ui.sync_url) {
                     apply(st, it.key, act);
                 }
                 y += rh;
@@ -1255,7 +1300,7 @@ fn draw_block(ui: &mut Ui, st: &mut AppState, b: &Block, bi: usize, at: Rect, vi
 /// One row: its label (and dim line), and its control. Returns what a
 /// click did. `ends`: the row is the card's first, its last.
 #[allow(clippy::too_many_arguments)]
-fn draw_row(ui: &mut Ui, it: &Item, at: (usize, usize), row: Rect, view: Rect, accent: Color, ends: (bool, bool), m: &mut Motion) -> Option<Act> {
+fn draw_row(ui: &mut Ui, it: &Item, at: (usize, usize), row: Rect, view: Rect, accent: Color, ends: (bool, bool), m: &mut Motion, field: &mut String) -> Option<Act> {
     let id = |what: &str| wid_n(&format!("settingswin.{what}.{}", at.0), at.1 as u64);
     let shown = visible(row, view);
     let whole = shown.is_some_and(|v| v.h >= row.h - 0.5);
@@ -1267,6 +1312,7 @@ fn draw_row(ui: &mut Ui, it: &Item, at: (usize, usize), row: Rect, view: Rect, a
         Ctl::Choice(names, _) => picker_width(ui, names),
         Ctl::Stepper(_) => 2.0 * STEP_BTN + STEP_VALUE_W,
         Ctl::Button(label) => ui.pill_width(label, true, true),
+        Ctl::Text(_) => 0.0,
     };
     let ctl_x = inner.right() - ctl_w;
     match &it.ctl {
@@ -1345,9 +1391,23 @@ fn draw_row(ui: &mut Ui, it: &Item, at: (usize, usize), row: Rect, view: Rect, a
                 act = Some(Act::Press);
             }
         }
+        Ctl::Text(placeholder) => {
+            // The one field here is the repository's address (`st.ui.sync_url`).
+            let fr = Rect::new(inner.x, row.y + ROW_H_SUB - 3.0, inner.w, FIELD_H - 4.0);
+            if whole {
+                let resp = ui.text_input_box(id("field"), fr, field, placeholder, 200);
+                if resp.submitted {
+                    ui.blur();
+                    act = Some(Act::Submit);
+                } else if resp.cancelled {
+                    act = Some(Act::Cancel);
+                }
+            }
+        }
     }
-    // The label, and the dim line under it.
+    // The label, and the dim line under it (a field's, above the field).
     let tw = (ctl_x - 16.0 - inner.x).max(0.0);
+    let row = if matches!(it.ctl, Ctl::Text(_)) { Rect::new(row.x, row.y, row.w, ROW_H_SUB) } else { row };
     match &it.sub {
         Some(sub) => {
             let cy = row.center().y;
@@ -1619,6 +1679,7 @@ mod tests {
                     Ctl::Choice(..) => Act::Pick(0),
                     Ctl::Stepper(_) => Act::Step(1),
                     Ctl::Button(_) => Act::Press,
+                    Ctl::Text(_) => Act::Submit,
                 };
                 apply(&mut st, it.key, act);
                 let saved = st.cmds.iter().any(|c| matches!(c, Command::SaveSettings));
@@ -1626,7 +1687,8 @@ mod tests {
                 match it.key {
                     // Start with Windows waits for its reading; the buttons open things.
                     Key::Autostart => assert!(st.cmds.is_empty()),
-                    Key::SyncSet | Key::SyncNow => assert!(st.cmds.iter().any(|c| matches!(c, Command::SyncPaste | Command::SyncNow)), "{:?}", it.key),
+                    Key::SyncSet | Key::SyncNow | Key::SyncCheck => assert!(st.cmds.iter().any(|c| matches!(c, Command::SyncUrl(_) | Command::SyncNow | Command::SyncCheck)), "{:?}", it.key),
+                    Key::SyncChange => assert!(st.ui.sync_editing, "Change opens the field"),
                     Key::SettingsFile | Key::DataFolder | Key::ReleaseNotes | Key::LyricsCredit => assert!(opens, "{:?}", it.key),
                     _ => assert!(saved, "{:?} didn't save", it.key),
                 }
@@ -1658,19 +1720,60 @@ mod tests {
     fn the_sync_group_follows_the_repository() {
         let mut st = state();
         let keys = |st: &AppState| sync_rows(st).iter().map(|i| i.key).collect::<Vec<_>>();
-        assert_eq!(keys(&st), [Key::SyncSet], "no repository: only Paste");
+        assert_eq!(keys(&st), [Key::SyncSet], "no repository: only the field");
+        assert!(matches!(sync_rows(&st)[0].ctl, Ctl::Text(_)));
         st.settings.sync.repo_url = Some("git@github.com:me/motchy-data.git".into());
-        assert_eq!(keys(&st), [Key::SyncSet, Key::SyncNow, Key::SyncOff]);
+        assert_eq!(keys(&st), [Key::SyncChange, Key::SyncCheck, Key::SyncNow, Key::SyncOff]);
         st.sync.last_day = "2026-11-06".into();
-        assert_eq!(sync_rows(&st)[1].sub.as_deref(), Some("Last sync: 2026-11-06"));
+        assert_eq!(sync_rows(&st)[2].sub.as_deref(), Some("Last sync: 2026-11-06"));
         st.sync.error = "git isn't installed".into();
-        assert!(sync_rows(&st)[1].sub.as_deref().unwrap().contains("git isn't installed"));
+        assert!(sync_rows(&st)[2].sub.as_deref().unwrap().contains("git isn't installed"));
         st.sync.running = true;
-        assert_eq!(sync_rows(&st)[1].sub.as_deref(), Some("Syncing…"));
+        assert_eq!(sync_rows(&st)[2].sub.as_deref(), Some("Syncing…"));
         st.cmds.clear();
         apply(&mut st, Key::SyncOff, Act::Press);
         assert_eq!(st.settings.sync.repo_url, None);
         assert!(st.cmds.iter().any(|c| matches!(c, Command::SaveSettings)));
+    }
+
+    #[test]
+    fn the_connection_row_says_whether_the_repository_answers() {
+        let mut st = state();
+        st.settings.sync.repo_url = Some("git@github.com:me/motchy-data.git".into());
+        let line = |st: &AppState| sync_rows(st)[1].sub.clone().unwrap();
+        assert_eq!(line(&st), "Not checked yet");
+        st.sync.check = RepoCheck::Checking;
+        assert_eq!(line(&st), "Checking…");
+        st.sync.check = RepoCheck::Connected(1_794_000_000);
+        assert_eq!(line(&st), "Connected");
+        st.sync.check = RepoCheck::Failed("repository not found".into());
+        assert_eq!(line(&st), "Can't reach it: repository not found");
+        st.cmds.clear();
+        apply(&mut st, Key::SyncCheck, Act::Press);
+        assert_eq!(st.cmds, [Command::SyncCheck]);
+        // Removing it forgets the answer.
+        apply(&mut st, Key::SyncOff, Act::Press);
+        assert_eq!(st.sync.check, RepoCheck::Unknown);
+    }
+
+    #[test]
+    fn the_repository_field_submits_cancels_and_opens_again_with_change() {
+        let mut st = state();
+        st.ui.sync_url = "  git@github.com:me/motchy-data.git ".into();
+        st.cmds.clear();
+        apply(&mut st, Key::SyncSet, Act::Submit);
+        assert_eq!(st.cmds, [Command::SyncUrl("  git@github.com:me/motchy-data.git ".into())], "the app trims and checks it");
+        // Change opens the field with the address that is set; Esc closes it again.
+        st.settings.sync.repo_url = Some("git@github.com:me/motchy-data.git".into());
+        st.ui.sync_url.clear();
+        apply(&mut st, Key::SyncChange, Act::Press);
+        assert!(st.ui.sync_editing);
+        assert_eq!(st.ui.sync_url, "git@github.com:me/motchy-data.git");
+        assert!(matches!(sync_rows(&st)[0].ctl, Ctl::Text(_)), "the field shows while changing");
+        apply(&mut st, Key::SyncSet, Act::Cancel);
+        assert!(!st.ui.sync_editing && st.ui.sync_url.is_empty());
+        assert_eq!(st.settings.sync.repo_url.as_deref(), Some("git@github.com:me/motchy-data.git"), "Esc keeps what was set");
+        assert_eq!(sync_rows(&st).len(), 4);
     }
 
     #[test]

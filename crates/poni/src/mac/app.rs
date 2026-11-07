@@ -29,7 +29,7 @@ use crate::settings_window::{self, Section};
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{
     AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, NoticeAction, PrayerState,
-    VolumeState,
+    RepoCheck, VolumeState,
 };
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, ScreenInfo, ViewInput};
@@ -323,6 +323,11 @@ pub fn draw_settings(ctx: &CGContext) {
 /// the window then moves with the drag.
 pub fn settings_input(input: settings_host::Input) -> bool {
     enter(|a| a.settings_input(input)).unwrap_or(false)
+}
+
+/// A key pressed in the Settings window, for the field that has the keyboard.
+pub fn settings_key(code: u16, command: bool, text: String) {
+    enter(|a| a.settings_key(code, command, &text));
 }
 
 /// The Settings window's display link ticked.
@@ -994,6 +999,10 @@ impl App {
                 // Start at login's switch reads it.
                 self.st.ui.autostart = Some(services::login::status() == Login::On);
                 pinfo!("settings window: open");
+                // Is the repository still there? Asked once a run, when someone looks.
+                if self.st.sync.check == RepoCheck::Unknown {
+                    self.sync_check();
+                }
             }
         }
         self.pending.push(Deferred::ShowSettings);
@@ -1053,6 +1062,39 @@ impl App {
             }
             None => settings_host::set_frames(false),
         }
+    }
+
+    /// A key in the Settings window: kept only while a field has the keyboard
+    /// (⌘W is the host's). The same keys the island's fields take.
+    fn settings_key(&mut self, code: u16, command: bool, text: &str) {
+        let Some(ui) = self.settings_ui.as_mut() else { return };
+        if ui.view.input.focused.is_none() {
+            return;
+        }
+        let keys = &mut ui.view.input.keys;
+        match code {
+            51 => keys.push(KeyInput::Backspace),
+            117 => keys.push(KeyInput::Delete),
+            36 | 76 => keys.push(KeyInput::Enter),
+            53 => keys.push(KeyInput::Escape),
+            123 => keys.push(KeyInput::Left),
+            124 => keys.push(KeyInput::Right),
+            115 => keys.push(KeyInput::Home),
+            119 => keys.push(KeyInput::End),
+            _ if command => match text {
+                "v" => {
+                    if let Some(t) = services::clipboard::read_text() {
+                        keys.extend(t.chars().filter(|c| !c.is_control()).map(KeyInput::Char));
+                    }
+                }
+                "a" => keys.push(KeyInput::SelectAll),
+                _ => {}
+            },
+            // Function keys arrive as private-use characters.
+            _ => keys.extend(text.chars().filter(|c| !c.is_control() && !('\u{F700}'..='\u{F8FF}').contains(c)).map(KeyInput::Char)),
+        }
+        ui.view.dirty = true;
+        settings_host::redraw();
     }
 
     /// Input in the Settings window. True for a press on an empty part:
@@ -1414,18 +1456,57 @@ impl App {
 
     /// Paste address (Settings): the clipboard's text becomes the repository
     /// when it is one `git clone` takes; otherwise Settings says so.
-    fn sync_paste(&mut self) {
-        let text = services::clipboard::read_text().unwrap_or_default();
-        let url = text.trim();
+    fn sync_set(&mut self, url: &str) {
+        let url = url.trim();
         if !poni_core::gitsync::valid_repo_url(url) {
-            self.st.sync.error = "That isn't an address git can clone: copy an HTTPS or SSH one (no name or token in it)".into();
+            self.st.sync.error = "That isn't an address git can clone: use an HTTPS or SSH one (no name or token in it)".into();
         } else {
             let before = self.st.settings.clone();
             self.st.settings.sync.repo_url = Some(url.to_string());
             self.st.sync.error.clear();
+            self.st.sync.check = RepoCheck::Unknown;
+            self.st.ui.sync_editing = false;
+            self.st.ui.sync_url.clear();
             self.settings_changed(&before);
             self.save_settings();
+            self.sync_check();
         }
+        if let Some(s) = self.settings_ui.as_mut() {
+            s.view.dirty = true;
+        }
+        self.request_frame();
+    }
+
+    /// Ask whether the repository answers, on its own short thread; it ends
+    /// with `AppEvent::SyncCheck`. Only when someone looks (Settings opens, a
+    /// repository is set, Check): nothing polls.
+    fn sync_check(&mut self) {
+        if self.smoke.is_some() || matches!(self.st.sync.check, RepoCheck::Checking) {
+            return;
+        }
+        let Some(url) = self.st.settings.sync.repo_url.clone() else { return };
+        self.st.sync.check = RepoCheck::Checking;
+        let sink = self.sink.clone();
+        std::thread::spawn(move || sink.send(AppEvent::SyncCheck(services::gitsync::check(&url))));
+        if let Some(s) = self.settings_ui.as_mut() {
+            s.view.dirty = true;
+        }
+        self.request_frame();
+    }
+
+    fn on_sync_check(&mut self, r: Result<(), String>) {
+        // The repository was removed while the question was out.
+        if self.st.settings.sync.repo_url.is_none() {
+            self.st.sync.check = RepoCheck::Unknown;
+            return;
+        }
+        self.st.sync.check = match r {
+            Ok(()) => RepoCheck::Connected(clock::unix_now()),
+            Err(e) => {
+                pwarn!("sync: the repository doesn't answer: {e}");
+                RepoCheck::Failed(e)
+            }
+        };
         if let Some(s) = self.settings_ui.as_mut() {
             s.view.dirty = true;
         }
@@ -1477,6 +1558,7 @@ impl App {
         self.st.sync.running = false;
         match r {
             Ok(done) => {
+                self.st.sync.check = RepoCheck::Connected(clock::unix_now());
                 pinfo!("sync: done{}", if done.settings.is_some() { " (took the settings from the repository)" } else { "" });
                 self.sync_mem = done.memory;
                 if !self.sync_mem.error.is_empty() {
@@ -1670,7 +1752,7 @@ impl App {
         self.st.now = now;
         let media_before = matches!(ev, AppEvent::Media(_) | AppEvent::MediaTimeline { .. }).then(|| self.media_snapshot());
         // What the Settings window shows that a service reports.
-        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_) | AppEvent::Sync(_));
+        let shown = matches!(ev, AppEvent::Update(_) | AppEvent::Addon { .. } | AppEvent::Usage(_) | AppEvent::Located(_) | AppEvent::Sync(_) | AppEvent::SyncCheck(_));
         if let Some(s) = self.settings_ui.as_mut().filter(|_| shown) {
             s.view.dirty = true;
         }
@@ -1811,6 +1893,7 @@ impl App {
             AppEvent::Locked(on) => self.set_away(None, Some(on)),
             AppEvent::Addon { id, status } => self.on_addon(id, status),
             AppEvent::Sync(r) => self.on_sync(r),
+            AppEvent::SyncCheck(r) => self.on_sync_check(r),
             AppEvent::Coding => self.load_coding(),
             AppEvent::Update(services::update::UpdateEvent::Checked(r)) => {
                 let open = self.updater.as_mut().is_some_and(|u| u.checked(&mut self.st, r, crate::updates::unix_now()));
@@ -2819,7 +2902,8 @@ impl App {
                 }
                 Command::SaveStore => self.set_timer(Timer::Save, 800),
                 Command::SyncNow => self.sync_now(),
-                Command::SyncPaste => self.sync_paste(),
+                Command::SyncUrl(url) => self.sync_set(&url),
+                Command::SyncCheck => self.sync_check(),
                 Command::CodingOn => {
                     let before = self.st.settings.clone();
                     self.st.settings.coding.track = true;

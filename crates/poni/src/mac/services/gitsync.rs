@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 /// Longest a single git command may take: a slow line still clones a small
 /// repository, a hung prompt doesn't hold the thread.
 const TIMEOUT: Duration = Duration::from_secs(90);
+/// Asking whether a repository answers is one short round trip.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Everything a run needs, read on the UI thread before it starts.
 pub struct Job {
@@ -57,6 +59,13 @@ pub fn machine() -> String {
 /// repository's address, which may carry a name.
 pub fn sync(job: &Job) -> Result<Done, String> {
     run(job).map_err(|e| e.replace(&job.url, "the repository"))
+}
+
+/// Does the repository answer? `git ls-remote` reads its branches and writes
+/// nothing, and an empty repository answers too. The error is one line,
+/// without the address.
+pub fn check(url: &str) -> Result<(), String> {
+    git_within(&std::env::temp_dir(), &["ls-remote", "--", url, "HEAD"], CHECK_TIMEOUT).map(drop).map_err(|e| e.replace(url, "the repository"))
 }
 
 fn run(j: &Job) -> Result<Done, String> {
@@ -149,6 +158,11 @@ fn ensure_clone(j: &Job, url: &str) -> Result<(), String> {
 
 /// Run `git` in `dir`; its output (trimmed) or its last line of complaint.
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    git_within(dir, args, TIMEOUT)
+}
+
+/// [`git`], giving up after `limit`.
+fn git_within(dir: &Path, args: &[&str], limit: Duration) -> Result<String, String> {
     let mut c = Command::new("git");
     c.current_dir(dir).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     c.env("GIT_TERMINAL_PROMPT", "0").env("GIT_ALLOW_PROTOCOL", "https:ssh:file");
@@ -163,7 +177,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(s) => break s,
-            None if started.elapsed() > TIMEOUT => {
+            None if started.elapsed() > limit => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!("git {} took too long", args.first().unwrap_or(&"")));
@@ -257,6 +271,25 @@ mod tests {
         let url = root.join("nothing-here.git").to_string_lossy().into_owned();
         let e = sync(&job(&url, root.join("c"), Settings::default(), Memory::default(), 1, "m")).err().expect("fails");
         assert!(!e.contains(&url) && !e.contains('\n'), "{e}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_repository_that_is_there_answers_and_one_that_is_gone_does_not() {
+        if git(Path::new("."), &["--version"]).is_err() {
+            return;
+        }
+        let root = temp("check");
+        let repo = root.join("there.git");
+        git(&root, &["init", "--quiet", "--bare", &repo.to_string_lossy()]).unwrap();
+        let url = repo.to_string_lossy().into_owned();
+        // An empty repository answers too: it is there.
+        assert_eq!(check(&url), Ok(()));
+        let _ = fs::remove_dir_all(&repo);
+        let e = check(&url).err().expect("gone");
+        assert!(!e.contains(&url) && !e.contains('\n'), "{e}");
+        // An address that would be an option is never passed on as one.
+        assert!(check("--upload-pack=true").is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

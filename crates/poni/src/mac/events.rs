@@ -96,6 +96,8 @@ pub enum AppEvent {
     Coding,
     /// A sync to the person's git repository ended (`services::gitsync`).
     Sync(Result<crate::services::gitsync::Done, String>),
+    /// Whether the repository answered (`services::gitsync::check`).
+    SyncCheck(Result<(), String>),
     /// Prayer times' adzan played to its end (`services::adzan`).
     AdzanEnded,
     /// Free-form log line from a service thread.

@@ -367,6 +367,12 @@ impl<'a, 'g> Ui<'a, 'g> {
         self.text_input_styled(id, r, buf, placeholder, max_chars, InputLook::Row { accent, icon })
     }
 
+    /// A field that shows its box even at rest (Settings has no hover list
+    /// to hide it in).
+    pub fn text_input_box(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize) -> TextInputResp {
+        self.text_input_styled(id, r, buf, placeholder, max_chars, InputLook::Box)
+    }
+
     fn text_input_styled(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize, look: InputLook) -> TextInputResp {
         let resp = self.interact(id, r, CursorKind::Text);
         let mut out = TextInputResp::default();

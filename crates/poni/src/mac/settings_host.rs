@@ -168,7 +168,10 @@ define_class!(
                 if let Some(win) = self.window() {
                     win.performClose(None);
                 }
+                return;
             }
+            // Anything else goes to the field that has the keyboard, if one does.
+            crate::app::settings_key(event.keyCode(), command, text);
         }
 
         // Light or dark: the Mac switched, so the window draws again.

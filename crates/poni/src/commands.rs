@@ -97,8 +97,10 @@ pub enum Command {
     /// Point the editors' WakaTime plugins at this app, or put the file back.
     CodingSetup,
     CodingRestore,
-    /// Take the repository's address from the clipboard (Settings' Paste address).
-    SyncPaste,
+    /// Use this as the repository's address (Settings' field, Enter).
+    SyncUrl(String),
+    /// Ask whether the repository answers (Settings' Check).
+    SyncCheck,
     /// Persist `AppState::settings` now (after a page toggled a setting).
     SaveSettings,
     /// Open the Settings window, or bring it forward (the gear, Windows).
