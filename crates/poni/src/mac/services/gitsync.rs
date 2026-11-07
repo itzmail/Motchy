@@ -167,6 +167,10 @@ fn notes_part(dir: &Path, local: &[Note]) -> Result<Vec<Note>, String> {
     }
     fs::create_dir_all(&folder).map_err(|e| format!("notes: {e}"))?;
     for n in &merged {
+        // A note still blank (just started) stays on this Mac until it has text.
+        if !n.deleted && n.text.trim().is_empty() {
+            continue;
+        }
         let path = folder.join(format!("{}.md", n.id));
         put(&path, &fs::read_to_string(&path).unwrap_or_default(), &textnotes::to_file(n))?;
     }

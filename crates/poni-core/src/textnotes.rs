@@ -34,10 +34,9 @@ impl Note {
         self.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
     }
 
-    /// The island edits one line; a note with more lines (written elsewhere)
-    /// stays as it is there.
-    pub fn one_line(&self) -> bool {
-        self.text.trim().lines().count() <= 1
+    /// The second line that has anything on it (the list's second row).
+    pub fn snippet(&self) -> &str {
+        self.text.lines().map(str::trim).filter(|l| !l.is_empty()).nth(1).unwrap_or("")
     }
 }
 
@@ -78,6 +77,39 @@ impl NoteList {
             }
             _ => false,
         }
+    }
+
+    /// Start an empty note (the editor fills it); `None` when the list is full.
+    pub fn create(&mut self, now: i64, nanos: u128) -> Option<String> {
+        if self.notes.iter().filter(|n| !n.deleted).count() >= MAX_NOTES {
+            return None;
+        }
+        let id = new_id(nanos);
+        self.notes.push(Note { id: id.clone(), text: String::new(), modified: now, deleted: false });
+        Some(id)
+    }
+
+    /// Keep what the editor holds, blank included (a note being written).
+    /// False when nothing changed.
+    pub fn write(&mut self, id: &str, text: &str, now: i64) -> bool {
+        let text: String = text.chars().take(MAX_LEN).collect();
+        match self.notes.iter_mut().find(|n| n.id == id && !n.deleted) {
+            Some(n) if n.text != text => {
+                n.text = text;
+                n.modified = now;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Delete the notes that stayed blank, except `keep`. True when any went.
+    pub fn prune_empty(&mut self, keep: Option<&str>, now: i64) -> bool {
+        let blank: Vec<String> = self.notes.iter().filter(|n| !n.deleted && n.text.trim().is_empty() && Some(n.id.as_str()) != keep).map(|n| n.id.clone()).collect();
+        for id in &blank {
+            self.delete(id, now);
+        }
+        !blank.is_empty()
     }
 
     pub fn delete(&mut self, id: &str, now: i64) -> bool {
@@ -194,6 +226,24 @@ mod tests {
     }
 
     #[test]
+    fn a_note_is_written_while_it_is_typed_and_blank_ones_go() {
+        let mut l = NoteList::default();
+        let a = l.create(1, 0xa).unwrap();
+        let b = l.create(2, 0xb).unwrap();
+        assert!(l.write(&a, "Shopping\n- milk ", 5), "trailing space is kept while typing");
+        assert_eq!(l.notes[0].text, "Shopping\n- milk ");
+        assert!(!l.write(&a, "Shopping\n- milk ", 6));
+        assert_eq!(l.live().len(), 2);
+        // The open note stays; any other blank one is deleted.
+        assert!(!l.prune_empty(Some(&b), 7));
+        assert!(l.prune_empty(None, 8));
+        assert_eq!(l.live().iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), [a.as_str()]);
+        assert!(l.write(&a, "   ", 9), "text can be wiped to blank");
+        assert!(l.prune_empty(None, 10));
+        assert!(l.live().is_empty());
+    }
+
+    #[test]
     fn newest_first() {
         let l = NoteList { notes: vec![note("a", "old", 1), note("b", "new", 9), note("c", "mid", 5)] };
         let ids: Vec<&str> = l.live().iter().map(|n| n.id.as_str()).collect();
@@ -231,7 +281,7 @@ mod tests {
         assert_eq!((n.modified, n.deleted), (777, false));
         assert_eq!(n.text, "# Shopping\n\n- milk");
         assert_eq!(n.title(), "# Shopping");
-        assert!(!n.one_line());
+        assert_eq!(n.snippet(), "- milk");
         // CRLF files from another editor read the same.
         assert_eq!(from_file("w", "---\r\nmodified: 5\r\n---\r\nhi\r\n", 0).unwrap(), note("w", "hi", 5));
     }

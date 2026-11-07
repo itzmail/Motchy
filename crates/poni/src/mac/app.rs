@@ -20,6 +20,7 @@ use crate::icons::Icon;
 use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
 use crate::menubar::{Login, MenuBar, MenuCmd};
 use crate::notch::{self, Fit, Notch};
+use crate::notes_editor;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::pill;
@@ -544,6 +545,7 @@ impl App {
         let mut st = AppState::new(settings, store);
         // The Mac's Calendar takes the stat tiles' place on Today.
         st.ui.agenda.on = true;
+        st.ui.note_native = true;
         st.now = clock::mono();
         st.local = clock::local_now();
         st.unix = clock::unix_now();
@@ -2085,6 +2087,21 @@ impl App {
                 self.apply_reminders_setting();
             }
             AppEvent::RemindersChanged => self.reminders_soon(),
+            AppEvent::NoteEdited(text) => {
+                if let Some(id) = self.st.ui.note_open.clone() {
+                    if self.st.store.textnotes.write(&id, &text, self.st.unix) {
+                        self.set_timer(Timer::Save, 800);
+                        self.request_frame();
+                    }
+                }
+            }
+            AppEvent::NoteFocus(true) => {
+                // The editor has the keyboard itself; the island stays open while it is written in.
+                self.text_focus = true;
+                self.input.focused = None;
+                self.kill_timer(Timer::Collapse);
+            }
+            AppEvent::NoteFocus(false) => self.blur_text(),
             AppEvent::RemindersRead(got) => self.on_reminders_read(got),
             AppEvent::Cities { file, got } => pages::prayer::cities_came(&mut self.st, file, got),
             AppEvent::Usage(ev) => self.on_usage(ev),
@@ -3409,6 +3426,9 @@ impl App {
             CGRect { origin: CGPoint { x: dirty.x as f64, y: dirty.y as f64 }, size: CGSize { width: dirty.w as f64, height: dirty.h as f64 } },
         );
         let now = self.st.now;
+        // The Notes page leaves its editor's box again if it is drawn; end_frame
+        // reads it (frames can end without a draw, so it stays until the next one).
+        self.st.ui.note_editor = None;
         let body = self.island.body_rect_at(self.cx);
         let geom = self.island.current();
         let content_alpha = self.island.content_alpha();
@@ -3548,6 +3568,7 @@ impl App {
             Some(false) => self.blur_text(),
             None => {}
         }
+        self.sync_note_editor();
         self.run_commands();
         if self.settings_ui.as_ref().is_some_and(|s| s.view.dirty) {
             settings_host::redraw();
@@ -3561,6 +3582,31 @@ impl App {
         let live = activities::is_live(&self.mode, &self.st) || d.live;
         window::set_frames(moving || live);
         self.schedule_wake();
+    }
+
+    /// The Notes page's native editor: laid over the island in the box the
+    /// page left, while the page is open and at rest; hidden when it is not
+    /// (moving, another page, collapsed), and blank notes go when the page is left.
+    fn sync_note_editor(&mut self) {
+        let boxed = self.st.ui.note_editor;
+        let at_rest = self.mode == Mode::Expanded(PageKind::Notes) && self.island.settled() && self.outgoing.is_none() && self.page_anim.is_none();
+        let note = self.st.ui.note_open.as_ref().and_then(|id| self.st.store.textnotes.notes.iter().find(|n| &n.id == id && !n.deleted));
+        match (boxed.filter(|_| at_rest), note) {
+            (Some(r), Some(n)) => {
+                notes_editor::show(r, &n.id, &n.text, self.st.accent);
+                if std::mem::take(&mut self.st.ui.note_focus) {
+                    notes_editor::focus();
+                    self.text_focus = true;
+                    self.kill_timer(Timer::Collapse);
+                }
+            }
+            _ => {
+                notes_editor::hide();
+                if self.mode != Mode::Expanded(PageKind::Notes) && self.st.store.textnotes.prune_empty(None, self.st.unix) {
+                    self.set_timer(Timer::Save, 800);
+                }
+            }
+        }
     }
 
     /// Log how smoothly the first morphs ran (frames, hitches), as on Windows.

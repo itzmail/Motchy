@@ -19,6 +19,7 @@ pub mod hdr;
 pub mod look;
 pub mod lrc;
 pub mod lrclib;
+pub mod markdown;
 pub mod mediaremote;
 pub mod notifications;
 pub mod nowplaying;

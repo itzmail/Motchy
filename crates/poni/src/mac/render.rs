@@ -679,7 +679,13 @@ fn seed(st: &mut AppState) {
     st.ui.agenda.calendars = vec![Calendar { id: "w".into(), title: "Work".into() }];
     st.ui.reminders.available = true;
     st.ui.reminders.access = Access::Granted;
-    for (n, text) in ["Call the bank before 3", "Idea: let the island show the next meeting", "Renew the passport", "Gift for mum"].iter().enumerate() {
+    let notes = [
+        "Trip to Bandung\nFerry leaves at 9:40\n- pack the blue jacket\n- passport\n- charger\n\nCall the hotel about late check-in.",
+        "Idea: let the island show the next meeting",
+        "Renew the passport\nBring the old one and two photos",
+        "Gift for mum",
+    ];
+    for (n, text) in notes.iter().enumerate() {
         st.store.textnotes.add(text, unix - 600 * n as i64, 1 + n as u128);
     }
 }

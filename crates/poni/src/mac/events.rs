@@ -108,6 +108,10 @@ pub enum AppEvent {
     RemindersChanged,
     /// The Tasks list in Reminders was read (`services::eventkit::read_reminders`).
     RemindersRead(Result<Vec<poni_core::todo::Remote>, String>),
+    /// The Notes editor's text after a change.
+    NoteEdited(String),
+    /// The Notes editor was clicked (true) or left with Esc (false).
+    NoteFocus(bool),
     /// Prayer times' adzan played to its end (`services::adzan`).
     AdzanEnded,
     /// Free-form log line from a service thread.

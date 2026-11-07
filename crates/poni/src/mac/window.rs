@@ -492,6 +492,20 @@ pub fn take_keyboard() {
     });
 }
 
+/// Let the panel take the keyboard for the Notes editor, which is its own
+/// first responder (unlike a drawn field, whose keys the island view takes).
+pub fn key_for_editor() {
+    WANT_KEY.store(true, Ordering::Relaxed);
+    with_window(|win| win.panel.makeKeyWindow());
+}
+
+/// The island view takes the keys again (the editor went away).
+pub fn first_responder_to_view() {
+    with_window(|win| {
+        let _ = win.panel.makeFirstResponder(Some(&win.view));
+    });
+}
+
 /// Give the keyboard back to the app that had it: ordering the panel out and
 /// in again hands key status back to the frontmost app's window.
 pub fn release_keyboard() {

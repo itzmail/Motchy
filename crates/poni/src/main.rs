@@ -105,6 +105,9 @@ mod menubar;
 #[path = "mac/notch.rs"]
 mod notch;
 #[cfg(target_os = "macos")]
+#[path = "mac/notes_editor.rs"]
+mod notes_editor;
+#[cfg(target_os = "macos")]
 #[path = "mac/paths.rs"]
 mod paths;
 #[cfg(target_os = "macos")]

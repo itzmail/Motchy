@@ -9,7 +9,7 @@ use crate::icons::Icon;
 use crate::pages::PageKind;
 use poni_core::addons::Status as AddonStatus;
 use poni_core::datetime::LocalDateTime;
-use poni_core::geom::{palette, Color};
+use poni_core::geom::{palette, Color, Rect};
 use poni_core::lrc::Lyrics;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::prayer::{Place, PlaceList, PrayerMoment, Site, World};
@@ -269,10 +269,16 @@ pub enum Said {
 #[derive(Clone, Debug, Default)]
 pub struct PageUiState {
     pub task_input: String,
-    /// The Notes page's field, the note being changed (its id) and its scroll.
-    pub note_input: String,
-    pub note_edit: Option<String>,
+    /// The Notes page: the note open in the editor (its id) and the list's scroll.
+    pub note_open: Option<String>,
     pub note_scroll: f32,
+    /// The editor is the Mac's own text view (laid over the island where the
+    /// page leaves `note_editor`); otherwise the page draws the note itself.
+    pub note_native: bool,
+    /// Where the page left room for the editor in the frame just drawn.
+    pub note_editor: Option<Rect>,
+    /// A note was just made: the editor takes the keyboard once it shows.
+    pub note_focus: bool,
     /// The Today page's agenda (the Mac's Calendar); `on` only on a Mac.
     pub agenda: poni_core::agenda::Agenda,
     /// Tasks and the Mac's Reminders; `available` only on a Mac.
