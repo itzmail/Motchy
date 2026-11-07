@@ -125,6 +125,8 @@ pub enum Icon {
     Zai,
     MiniMax,
     OpenRouter,
+    /// The Mac's Command key: Command Code (`cmd`).
+    Command,
     /// The Oyenza mark (Oyen's head), for the Oyenza account section.
     Oyenza,
 }
@@ -143,6 +145,7 @@ pub fn service(id: ProviderId) -> Icon {
         ProviderId::Zai => Icon::Zai,
         ProviderId::MiniMax => Icon::MiniMax,
         ProviderId::OpenRouter => Icon::OpenRouter,
+        ProviderId::CommandCode => Icon::Command,
     }
 }
 
@@ -361,6 +364,14 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         Zai => p![f(ZAI)],
         MiniMax => p![f(MINIMAX)],
         OpenRouter => p![f(OPENROUTER)],
+        // The ⌘ key: a square with a loop at each corner.
+        Command => p![
+            s("M9 9h6v6H9z"),
+            s("M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9"),
+            s("M15 9V6.5A2.5 2.5 0 1 1 17.5 9H15"),
+            s("M9 15v2.5A2.5 2.5 0 1 1 6.5 15H9"),
+            s("M15 15v2.5A2.5 2.5 0 1 0 17.5 15H15"),
+        ],
         Oyenza => p![f(OYENZA)],
     }
 }
@@ -468,7 +479,7 @@ mod tests {
         Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop, Icon::Script, Icon::Code, Icon::Record, Icon::Download,
         Icon::Recorder, Icon::Screen, Icon::AppWindow, Icon::Area, Icon::Camera, Icon::Mic, Icon::Bell, Icon::Notes, Icon::Message,
         Icon::Ai, Icon::OpenAi, Icon::Claude, Icon::OpenCode, Icon::Gemini, Icon::Antigravity, Icon::Cursor, Icon::Copilot, Icon::Kimi, Icon::Zai,
-        Icon::MiniMax, Icon::OpenRouter, Icon::Oyenza,
+        Icon::MiniMax, Icon::OpenRouter, Icon::Command, Icon::Oyenza,
     ];
 
     #[test]

@@ -437,6 +437,7 @@ fn usage_page(id: ProviderId) -> &'static str {
         ProviderId::Zai => "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
         ProviderId::MiniMax => "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3",
         ProviderId::OpenRouter => "https://openrouter.ai/activity",
+        ProviderId::CommandCode => "https://commandcode.ai/studio",
     }
 }
 

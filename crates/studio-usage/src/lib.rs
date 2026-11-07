@@ -39,6 +39,7 @@ pub mod alerts;
 pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod commandcode;
 pub mod copilot;
 pub mod cursor;
 pub mod gemini;
@@ -78,10 +79,12 @@ pub enum ProviderId {
     Zai,
     MiniMax,
     OpenRouter,
+    /// Command Code (`cmd`).
+    CommandCode,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 11] = [
+    pub const ALL: [ProviderId; 12] = [
         ProviderId::Codex,
         ProviderId::Claude,
         ProviderId::OpenCode,
@@ -93,6 +96,7 @@ impl ProviderId {
         ProviderId::Zai,
         ProviderId::MiniMax,
         ProviderId::OpenRouter,
+        ProviderId::CommandCode,
     ];
 
     /// Stable key: settings, the log, fixture folders.
@@ -109,6 +113,7 @@ impl ProviderId {
             ProviderId::Zai => "zai",
             ProviderId::MiniMax => "minimax",
             ProviderId::OpenRouter => "openrouter",
+            ProviderId::CommandCode => "commandcode",
         }
     }
 
@@ -126,6 +131,7 @@ impl ProviderId {
             ProviderId::Zai => "Z.ai GLM",
             ProviderId::MiniMax => "MiniMax",
             ProviderId::OpenRouter => "OpenRouter",
+            ProviderId::CommandCode => "Command Code",
         }
     }
 
@@ -514,7 +520,7 @@ pub struct KeyAsk {
 }
 
 /// Every service, in [`ProviderId::ALL`] order.
-pub fn all() -> [&'static dyn Provider; 11] {
+pub fn all() -> [&'static dyn Provider; 12] {
     [
         &codex::Codex,
         &claude::Claude,
@@ -527,6 +533,7 @@ pub fn all() -> [&'static dyn Provider; 11] {
         &zai::Zai,
         &minimax::MiniMax,
         &openrouter::OpenRouter,
+        &commandcode::CommandCode,
     ]
 }
 
