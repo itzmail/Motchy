@@ -8,6 +8,11 @@
 //! coding, a longer one a break), and keeps one line per day in a file per
 //! month: `activity/wakatime/2026-11.jsonl` in the person's repository.
 //! Raw heartbeats are never stored.
+//!
+//! A heartbeat with the category "ai coding" (wakatime-cli adds them for
+//! what a coding agent edited) is counted in a stream of its own, so its
+//! gaps never mix with the person's. Its seconds are in the day's total and
+//! also kept apart in [`Day::ai`].
 
 use crate::datetime::days_from_civil;
 use serde::{Deserialize, Serialize};
@@ -19,7 +24,7 @@ pub const PORT: u16 = 43729;
 /// A gap between two heartbeats up to this long counts as coding
 /// (WakaTime's default of fifteen minutes).
 pub const TIMEOUT_S: f64 = 900.0;
-/// Projects and languages kept for each day.
+/// Projects, languages and editors kept for each day.
 const KEEP_TOP: usize = 8;
 /// Heartbeats taken from one request.
 pub const MAX_BEATS: usize = 1000;
@@ -44,6 +49,11 @@ pub struct Day {
     pub total: u32,
     pub projects: Vec<Share>,
     pub languages: Vec<Share>,
+    /// Of `total`, the seconds a coding agent worked (heartbeats of the
+    /// category "ai coding"). Days kept before this was told apart have 0.
+    pub ai: u32,
+    /// "VS Code", "Zed", "Neovim": from the plugin's user agent.
+    pub editors: Vec<Share>,
 }
 
 // ---------------------------------------------------------------- the config file
@@ -145,6 +155,54 @@ pub struct Beat {
     pub time: f64,
     pub project: String,
     pub language: String,
+    pub editor: String,
+    /// The category was "ai coding".
+    pub ai: bool,
+}
+
+/// The editor a plugin's user agent names: `wakatime/v2.28.4 (darwin-26.0-arm64)
+/// go1.25.0 vscode/1.100.0 vscode-wakatime/25.0.0` is "VS Code". "Other" when
+/// it names none.
+pub fn editor_of(user_agent: &str) -> String {
+    let tokens: Vec<&str> = user_agent.split_whitespace().collect();
+    // What follows the Go version is the editor and then its plugin (named
+    // `...-wakatime`); a coding agent names the model first and itself last
+    // (`haiku/4-5 claude-code/2.1`). So: the last one that isn't a plugin.
+    let after = match tokens.iter().position(|t| t.strip_prefix("go").is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))) {
+        Some(i) => &tokens[i + 1..],
+        None => &tokens[..],
+    };
+    let name = after.iter().rev().find(|t| !t.starts_with("wakatime/") && !t.starts_with('(') && !t.split('/').next().is_some_and(|n| n.to_ascii_lowercase().ends_with("wakatime"))).and_then(|t| t.split('/').next()).unwrap_or("").trim();
+    if name.is_empty() {
+        return "Other".into();
+    }
+    let known = match name.to_ascii_lowercase().as_str() {
+        "vscode" | "code" => "VS Code",
+        "vscode-insiders" => "VS Code Insiders",
+        "neovim" | "nvim" => "Neovim",
+        "vim" => "Vim",
+        "zed" => "Zed",
+        "cursor" => "Cursor",
+        "emacs" => "Emacs",
+        "sublime" | "sublime text" => "Sublime Text",
+        "xcode" => "Xcode",
+        "windsurf" => "Windsurf",
+        _ => "",
+    };
+    if !known.is_empty() {
+        return known.into();
+    }
+    // "claude-code" is "Claude Code".
+    let words: Vec<String> = name
+        .split('-')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+        })
+        .collect();
+    let name: String = words.join(" ").chars().take(40).collect();
+    if name.is_empty() { "Other".into() } else { name }
 }
 
 fn name_of(v: &Value, key: &str) -> String {
@@ -167,7 +225,9 @@ pub fn parse_beats(body: &str) -> Result<(Vec<Beat>, usize), String> {
         .into_iter()
         .filter_map(|b| {
             let time = b.get("time").and_then(Value::as_f64).filter(|t| t.is_finite() && (946_684_800.0..4_102_444_800.0).contains(t))?;
-            Some(Beat { time, project: name_of(b, "project"), language: name_of(b, "language") })
+            let ai = b.get("category").and_then(Value::as_str).is_some_and(|c| c.trim().eq_ignore_ascii_case("ai coding"));
+            let editor = b.get("user_agent").and_then(Value::as_str).map_or_else(|| "Other".to_string(), editor_of);
+            Some(Beat { time, project: name_of(b, "project"), language: name_of(b, "language"), editor, ai })
         })
         .collect();
     Ok((beats, total))
@@ -214,6 +274,7 @@ pub struct Last {
     pub time: f64,
     pub project: String,
     pub language: String,
+    pub editor: String,
 }
 
 /// What the counting remembers between heartbeats and runs: the last one of
@@ -222,33 +283,43 @@ pub struct Last {
 #[serde(default)]
 pub struct Tracker {
     pub last: BTreeMap<String, Last>,
+    /// The same for the coding agent's heartbeats ("ai coding"), counted apart.
+    pub ai_last: BTreeMap<String, Last>,
 }
 
 impl Tracker {
     /// Count a heartbeat that happened on `date` into `days`. The gap since
-    /// the last one that day, if it was short enough, was spent on what that
-    /// last one was about. A heartbeat that isn't newer is ignored (the same
-    /// one sent twice, or an older one that arrives late).
+    /// the last one of its stream (the person's, or the coding agent's) that
+    /// day, if it was short enough, was spent on what that last one was
+    /// about. A heartbeat that isn't newer is ignored (the same one sent
+    /// twice, or an older one that arrives late).
     pub fn add(&mut self, days: &mut Vec<Day>, beat: &Beat, date: &str) {
-        let spent = match self.last.get(date) {
+        let last = if beat.ai { &mut self.ai_last } else { &mut self.last };
+        let spent = match last.get(date) {
             Some(l) if beat.time <= l.time => return,
-            Some(l) if beat.time - l.time <= TIMEOUT_S => Some(((beat.time - l.time).round() as u32, l.project.clone(), l.language.clone())),
+            Some(l) if beat.time - l.time <= TIMEOUT_S => Some(((beat.time - l.time).round() as u32, l.project.clone(), l.language.clone(), l.editor.clone())),
             _ => None,
         };
         if days.iter().all(|d| d.date != date) {
             days.push(Day { date: date.to_string(), ..Day::default() });
         }
-        if let Some((secs, project, language)) = spent.filter(|(s, ..)| *s > 0) {
+        if let Some((secs, project, language, editor)) = spent.filter(|(s, ..)| *s > 0) {
             if let Some(d) = days.iter_mut().find(|d| d.date == date) {
                 d.total += secs;
+                if beat.ai {
+                    d.ai += secs;
+                }
                 bump(&mut d.projects, &project, secs);
                 bump(&mut d.languages, &language, secs);
+                bump(&mut d.editors, &editor, secs);
             }
         }
-        self.last.insert(date.to_string(), Last { time: beat.time, project: beat.project.clone(), language: beat.language.clone() });
-        while self.last.len() > KEEP_DATES {
-            let oldest = self.last.keys().next().cloned().unwrap_or_default();
-            self.last.remove(&oldest);
+        last.insert(date.to_string(), Last { time: beat.time, project: beat.project.clone(), language: beat.language.clone(), editor: beat.editor.clone() });
+        for map in [&mut self.last, &mut self.ai_last] {
+            while map.len() > KEEP_DATES {
+                let oldest = map.keys().next().cloned().unwrap_or_default();
+                map.remove(&oldest);
+            }
         }
     }
 
@@ -274,7 +345,7 @@ fn bump(shares: &mut Vec<Share>, name: &str, secs: u32) {
 
 // ---------------------------------------------------------------- dates
 
-fn parse_date(d: &str) -> Option<i64> {
+pub(crate) fn parse_date(d: &str) -> Option<i64> {
     let b = d.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return None;
@@ -328,9 +399,13 @@ pub struct Summary {
     pub week_total: u32,
     /// The last 30 days.
     pub month_total: u32,
+    /// Of today and of the last seven days, the part a coding agent worked.
+    pub ai_today: u32,
+    pub ai_week: u32,
     /// Where the last seven days went, most first.
     pub projects: Vec<Share>,
     pub languages: Vec<Share>,
+    pub editors: Vec<Share>,
     /// Days we keep, and the first of them.
     pub kept: usize,
     pub since: String,
@@ -339,7 +414,7 @@ pub struct Summary {
 pub fn summarize(days: &[Day], today: &str) -> Summary {
     let Some(t) = parse_date(today) else { return Summary::default() };
     let mut s = Summary { kept: days.len(), since: days.iter().map(|d| d.date.clone()).min().unwrap_or_default(), ..Summary::default() };
-    let (mut projects, mut languages): (Vec<Share>, Vec<Share>) = (Vec::new(), Vec::new());
+    let (mut projects, mut languages, mut editors): (Vec<Share>, Vec<Share>, Vec<Share>) = (Vec::new(), Vec::new(), Vec::new());
     for d in days {
         let Some(age) = parse_date(&d.date).map(|z| t - z).filter(|a| (0..30).contains(a)) else { continue };
         s.month_total += d.total;
@@ -348,16 +423,20 @@ pub fn summarize(days: &[Day], today: &str) -> Summary {
             s.week_total += d.total;
             add_shares(&mut projects, &d.projects);
             add_shares(&mut languages, &d.languages);
+            add_shares(&mut editors, &d.editors);
+            s.ai_week += d.ai;
         }
         if age == 0 {
             s.today = d.total;
+            s.ai_today = d.ai;
         }
     }
-    for v in [&mut projects, &mut languages] {
+    for v in [&mut projects, &mut languages, &mut editors] {
         v.sort_by(|a, b| b.secs.cmp(&a.secs).then_with(|| a.name.cmp(&b.name)));
     }
     s.projects = projects;
     s.languages = languages;
+    s.editors = editors;
     s
 }
 
@@ -385,11 +464,11 @@ mod tests {
     use super::*;
 
     fn day(date: &str, total: u32, project: &str) -> Day {
-        Day { date: date.into(), total, projects: vec![Share { name: project.into(), secs: total }], languages: Vec::new() }
+        Day { date: date.into(), total, projects: vec![Share { name: project.into(), secs: total }], ..Day::default() }
     }
 
     fn beat(time: f64, project: &str, language: &str) -> Beat {
-        Beat { time, project: project.into(), language: language.into() }
+        Beat { time, project: project.into(), language: language.into(), editor: "Other".into(), ai: false }
     }
 
     const T0: f64 = 1_793_000_000.0;
@@ -519,6 +598,71 @@ mod tests {
         assert_eq!(s.projects[0], Share { name: "motchy".into(), secs: 5400 });
         assert_eq!((s.kept, s.since.as_str()), (5, "2026-09-01"));
         assert_eq!(summarize(&d, "bad"), Summary::default());
+    }
+
+    fn ai_beat(time: f64, project: &str) -> Beat {
+        Beat { ai: true, editor: "Claude Code".into(), ..beat(time, project, "Rust") }
+    }
+
+    #[test]
+    fn the_coding_agent_is_counted_in_a_stream_of_its_own() {
+        let date = |_: f64| "2026-11-06".to_string();
+        let (mut t, mut days) = (Tracker::default(), Vec::new());
+        // You type for 120 s while the agent edits 300 s later in the same
+        // stretch: each stream measures its own gaps, so neither eats the other's.
+        t.add_all(&mut days, vec![beat(T0, "a", "Rust"), beat(T0 + 60.0, "a", "Rust"), ai_beat(T0 + 30.0, "a"), ai_beat(T0 + 330.0, "a"), beat(T0 + 120.0, "a", "Rust")], date);
+        assert_eq!(days[0].total, 120 + 300, "both streams are in the total");
+        assert_eq!(days[0].ai, 300, "and the agent's part is told apart");
+        // A gap between a person's and an agent's beat is nobody's time.
+        let (mut t, mut days) = (Tracker::default(), Vec::new());
+        t.add_all(&mut days, vec![beat(T0, "a", "Rust"), ai_beat(T0 + 10.0, "a")], date);
+        assert_eq!((days[0].total, days[0].ai), (0, 0));
+        // The agent's last beat is remembered across a restart like the person's.
+        let mut back: Tracker = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        back.add(&mut days, &ai_beat(T0 + 70.0, "a"), "2026-11-06");
+        assert_eq!((days[0].total, days[0].ai), (60, 60));
+        // An old tracker file (no agent stream) still reads.
+        let old: Tracker = serde_json::from_str(r#"{"last":{"2026-11-06":{"time":1.0,"project":"a","language":"b"}}}"#).unwrap();
+        assert!(old.ai_last.is_empty() && old.last["2026-11-06"].editor.is_empty());
+    }
+
+    #[test]
+    fn the_editor_comes_from_the_plugins_user_agent() {
+        for (ua, want) in [
+            ("wakatime/v2.28.4 (darwin-26.0-arm64) go1.25.0 vscode/1.100.0 vscode-wakatime/25.0.0", "VS Code"),
+            ("wakatime/v1.130.1 (darwin-24.0.0-arm64) go1.23.2 neovim/0.10.1 vim-wakatime/11.2.0", "Neovim"),
+            ("wakatime/v1.1 (darwin-1-arm64) go1.20 zed/0.150 zed-wakatime/1.0", "Zed"),
+            ("wakatime/v1.1 (darwin-1-arm64) go1.20 phpstorm/2024.1 phpstorm-wakatime/1.0", "Phpstorm"),
+            ("wakatime/v1.1 (darwin-1-arm64) go1.20", "Other"),
+            ("", "Other"),
+            ("sometool/1.0", "Sometool"),
+            ("wakatime/v1 (darwin-1-arm64) go1.20 -/1", "Other"),
+            // A coding agent's: the model first, the agent last.
+            ("wakatime/v2.28.4 (darwin-27.2.0-arm64) go1.27.3 haiku/4-5-20251001 claude-code/2.1.241", "Claude Code"),
+            ("wakatime/v2.28.4 (darwin-27.2.0-arm64) go1.27.3 claude-code/2.1.241", "Claude Code"),
+        ] {
+            assert_eq!(editor_of(ua), want, "{ua}");
+        }
+        let one = r#"{"time":1793000000,"project":"a","language":"Rust","category":"AI Coding","user_agent":"wakatime/v1 (darwin-1-arm64) go1.20 vscode/1 vscode-wakatime/1"}"#;
+        let (got, _) = parse_beats(one).unwrap();
+        assert!(got[0].ai && got[0].editor == "VS Code", "{got:?}");
+        let human = r#"{"time":1793000000,"category":"coding"}"#;
+        assert!(!parse_beats(human).unwrap().0[0].ai);
+    }
+
+    #[test]
+    fn editors_and_the_agent_show_in_the_summary() {
+        let mut a = day("2026-11-06", 3600, "x");
+        a.ai = 900;
+        a.editors = vec![Share { name: "Zed".into(), secs: 2700 }, Share { name: "Claude Code".into(), secs: 900 }];
+        let mut b = day("2026-11-05", 600, "x");
+        b.ai = 100;
+        b.editors = vec![Share { name: "Zed".into(), secs: 600 }];
+        let s = summarize(&[a, b, day("2026-10-01", 50, "x")], "2026-11-06");
+        assert_eq!((s.ai_today, s.ai_week), (900, 1000));
+        assert_eq!(s.editors, vec![Share { name: "Zed".into(), secs: 3300 }, Share { name: "Claude Code".into(), secs: 900 }]);
+        // Days kept before the agent was told apart read as 0.
+        assert_eq!(from_jsonl("{\"date\":\"2026-11-01\",\"total\":5}\n")[0].ai, 0);
     }
 
     #[test]

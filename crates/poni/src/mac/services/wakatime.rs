@@ -287,7 +287,7 @@ mod tests {
     }
 
     fn day(date: &str, total: u32) -> Day {
-        Day { date: date.into(), total, projects: vec![Share { name: "motchy".into(), secs: total }], languages: Vec::new() }
+        Day { date: date.into(), total, projects: vec![Share { name: "motchy".into(), secs: total }], ..Day::default() }
     }
 
     /// Send a raw request to the server and read the whole answer.

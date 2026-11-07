@@ -123,6 +123,7 @@ fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
         let both = poni_core::wakatime::union(super::wakatime::load(local), super::wakatime::load(&repo));
         super::wakatime::store(local, &both)?;
         super::wakatime::store(&repo, &both)?;
+        readme(dir, &both, &j.today)?;
     }
 
     // Send what changed.
@@ -140,6 +141,27 @@ fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
     }
 
     Ok(taken)
+}
+
+/// Put the coding report in the repository's `README.md`: only the block
+/// between its markers, so what the person wrote stays. Nothing is written
+/// when there are no days yet, or when the file can't be read as text (it is
+/// theirs, so it is left alone).
+fn readme(dir: &Path, days: &[poni_core::wakatime::Day], today: &str) -> Result<(), String> {
+    if days.is_empty() {
+        return Ok(());
+    }
+    let path = dir.join("README.md");
+    let old = match fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return Ok(()),
+    };
+    let new = poni_core::codingreport::splice(&old, &poni_core::codingreport::report(days, today));
+    if new != old {
+        fs::write(&path, new).map_err(|e| format!("README.md: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Clone the repository on the first run, and keep `origin` pointing at the
@@ -271,6 +293,47 @@ mod tests {
         let url = root.join("nothing-here.git").to_string_lossy().into_owned();
         let e = sync(&job(&url, root.join("c"), Settings::default(), Memory::default(), 1, "m")).err().expect("fails");
         assert!(!e.contains(&url) && !e.contains('\n'), "{e}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_readme_gets_the_coding_report_and_keeps_the_persons_words() {
+        if git(Path::new("."), &["--version"]).is_err() {
+            return;
+        }
+        use poni_core::wakatime::{Day, Share};
+        let root = temp("readme");
+        let remote = root.join("remote.git");
+        git(&root, &["init", "--bare", "--quiet", "-b", "main", &remote.to_string_lossy()]).unwrap();
+        let url = remote.to_string_lossy().into_owned();
+        // The person's own README is already in the repository.
+        let seed = root.join("seed");
+        git(&root, &["clone", "--quiet", &url, &seed.to_string_lossy()]).unwrap();
+        fs::write(seed.join("README.md"), "# Mine\n\nHello.\n").unwrap();
+        git(&seed, &["add", "-A"]).unwrap();
+        git(&seed, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "mine"]).unwrap();
+        git(&seed, &["push", "--quiet", "-u", "origin", "HEAD"]).unwrap();
+
+        let coding = root.join("coding");
+        let days = vec![Day { date: "2026-11-05".into(), total: 3600, projects: vec![Share { name: "motchy".into(), secs: 3600 }], ..Day::default() }, Day { date: "2026-11-06".into(), total: 600, ..Day::default() }];
+        super::super::wakatime::store(&coding, &days).unwrap();
+        let mut j = job(&url, root.join("a"), Settings::default(), Memory::default(), 100, "mac-a");
+        j.coding = Some(coding);
+        let done = sync(&j).unwrap();
+        let text = fs::read_to_string(root.join("a/README.md")).unwrap();
+        assert!(text.starts_with("# Mine\n\nHello.\n"), "{text}");
+        assert!(text.contains("## Coding report") && text.contains("| motchy | 1h 00m |"), "{text}");
+        // It went to the repository too.
+        let check = root.join("check");
+        git(&root, &["clone", "--quiet", &url, &check.to_string_lossy()]).unwrap();
+        assert_eq!(fs::read_to_string(check.join("README.md")).unwrap(), text);
+
+        // The same days on the same date change nothing: no new commit.
+        let commits = |d: &Path| git(d, &["rev-list", "--count", "HEAD"]).unwrap();
+        let before = commits(&root.join("a"));
+        j.memory = done.memory;
+        sync(&j).unwrap();
+        assert_eq!(commits(&root.join("a")), before);
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -11,6 +11,7 @@ pub mod brand;
 pub mod datetime;
 pub mod frametime;
 pub mod geom;
+pub mod codingreport;
 pub mod gitsync;
 pub mod glass;
 pub mod hdr;

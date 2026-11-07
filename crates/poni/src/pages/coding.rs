@@ -15,12 +15,12 @@ use poni_core::datetime::{days_from_civil, weekday_from_days, WEEKDAY_SHORT};
 use poni_core::geom::{palette, Color, Rect};
 use poni_core::wakatime::{fmt_hm, Share, Summary};
 
-const HEIGHT: f32 = 146.0;
+const HEIGHT: f32 = 162.0;
 const LEFT_W: f32 = 196.0;
 const COL_GAP: f32 = 28.0;
 const BAR_W: f32 = 20.0;
 const BAR_GAP: f32 = 9.0;
-const BARS_Y: f32 = 78.0;
+const BARS_Y: f32 = 94.0;
 const BARS_H: f32 = 40.0;
 const ROW_H: f32 = 24.0;
 const ROWS: usize = 3;
@@ -71,6 +71,11 @@ fn left(ui: &mut Ui, st: &AppState, area: Rect, s: &Summary, accent: Color) {
     ui.c.text(&fmt_hm(s.today), Rect::new(x, area.y + 14.0, LEFT_W, 38.0), &TextStyle::new(30.0).weight(Weight::Semibold).tabular());
     let line = format!("Week {} · Month {}", fmt_hm(s.week_total), fmt_hm(s.month_total));
     ui.c.text(&line, Rect::new(x, area.y + 54.0, LEFT_W, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    // What a coding agent did is in those numbers; this says how much.
+    if s.ai_week > 0 {
+        let ai = format!("AI {} today · {} this week", fmt_hm(s.ai_today), fmt_hm(s.ai_week));
+        ui.c.text(&ai, Rect::new(x, area.y + 70.0, LEFT_W, 16.0), &TextStyle::footnote().color(accent));
+    }
 
     // Seven bars, today last, the weekday under each.
     let t = st.local;
@@ -106,15 +111,20 @@ fn right(ui: &mut Ui, st: &AppState, area: Rect, s: &Summary, accent: Color) {
     }
 
     let y = area.y + 22.0 + ROWS as f32 * ROW_H + 4.0;
+    let mut next = y + 18.0;
     if let Some(line) = languages_line(&s.languages) {
         ui.c.text(&line, Rect::new(x, y, w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    }
+    if let Some(line) = languages_line(&s.editors) {
+        ui.c.text(&format!("Editors  {line}"), Rect::new(x, next, w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+        next += 18.0;
     }
     // What went wrong last time, or how much history the app keeps.
     // A sync's trouble only counts where a repository is set.
     let sync_trouble = if st.settings.sync.repo_url.is_some() { &st.sync.error } else { &st.coding.error };
     let problem = if st.coding.error.is_empty() { sync_trouble } else { &st.coding.error };
     let (note, color) = if problem.is_empty() { (format!("{} days kept since {}", s.kept, s.since), palette::TEXT_FAINT) } else { (problem.clone(), palette::ORANGE) };
-    ui.c.text(&note, Rect::new(x, y + 18.0, w, 14.0), &TextStyle::caption().color(color));
+    ui.c.text(&note, Rect::new(x, next, w, 14.0), &TextStyle::caption().color(color));
 }
 
 /// "Rust 62% · Swift 20% · Go 9%": the top three languages' share of the week.
