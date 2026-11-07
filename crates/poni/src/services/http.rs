@@ -39,7 +39,6 @@ const BIG_BODY_BYTES: usize = 256 * 1024;
 pub enum Method {
     Get,
     Post,
-    Delete,
 }
 
 /// A complete response.
@@ -186,7 +185,6 @@ impl Client {
         let method = match method {
             Method::Get => HttpMethod::Get(),
             Method::Post => HttpMethod::Post(),
-            Method::Delete => HttpMethod::Delete(),
         }
         .map_err(|e| other("could not create a request", &e))?;
         let request = HttpRequestMessage::Create(&method, &uri).map_err(|e| other("could not create a request", &e))?;

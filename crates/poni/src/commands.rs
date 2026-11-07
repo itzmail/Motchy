@@ -19,8 +19,6 @@ pub enum MediaCmd {
 pub enum Sound {
     /// Gentle chime (timer finished, reminder).
     Chime,
-    /// Short tick (button feedback) — currently unused.
-    Tick,
 }
 
 /// Requests for the Notifications add-on (`services::notifications`).
@@ -81,8 +79,6 @@ pub enum Command {
     DragOut(Vec<String>),
     /// Request a thumbnail for a shelf item (async; arrives as `AppEvent::ShelfThumb`).
     LoadThumb(String),
-    /// Give the island keyboard focus for a text field.
-    FocusText,
     /// The Script page's Paste: the clipboard's text, line breaks kept,
     /// becomes the script.
     ScriptPaste,
@@ -120,8 +116,6 @@ pub enum Command {
     /// Settings' Check now: read the update file now, as the menu's Check
     /// for updates… does (`AppState::update.said` takes the answer).
     CheckForUpdates,
-    /// Start/stop the 1 Hz system-stats sampler.
-    WantStats(bool),
     /// Start with Windows on or off (the Settings page's switch).
     SetAutostart(bool),
     /// Open the System page on this module (a Today ring was clicked).

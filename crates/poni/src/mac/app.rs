@@ -2886,7 +2886,6 @@ impl App {
                         services::thumbs::load_async(p, px, self.sink.clone());
                     }
                 }
-                Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
                 Command::ScriptPaste => {
                     let text = services::clipboard::read_text().map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());
@@ -2943,7 +2942,6 @@ impl App {
                         u.install_on_next_start(&mut self.st);
                     }
                 }
-                Command::WantStats(b) => self.set_stats(b),
                 Command::SetAutostart(on) => {
                     if (services::login::status() == Login::On) != on {
                         self.toggle_login();
@@ -3992,14 +3990,13 @@ impl App {
                 let gone = !settings_host::is_open() && self.settings_ui.is_none();
                 Some(("settings-window-closed", gone, format!("window {}, content {}", if settings_host::is_open() { "still open" } else { "gone" }, if self.settings_ui.is_some() { "kept" } else { "dropped" })))
             }
-            // Signed out, Today shows the sign-in card, so its tiles' once-a-second
-            // readings stay off; the readings still work for when the tiles show
-            // (a server without the day): one taken here.
+            // Today always shows its stat tiles (no sign-in card in Motchy), so its
+            // once-a-second readings are on while the page is open; one taken here.
             "open-today" => {
                 let s = services::sysstats::sample();
-                let ok = s.valid && s.mem_total > 0 && s.disk_total > 0 && s.uptime_s > 0 && !self.stats_on && !pages::today::shows_tiles(&self.st);
+                let ok = s.valid && s.mem_total > 0 && s.disk_total > 0 && s.uptime_s > 0 && self.stats_on && pages::today::shows_tiles(&self.st);
                 let d = format!(
-                    "one reading: memory {:.1} of {:.1} GiB, disk {:.0} GiB free of {:.0}, up {} min; Today's readings {} (sign-in card)",
+                    "one reading: memory {:.1} of {:.1} GiB, disk {:.0} GiB free of {:.0}, up {} min; Today's readings {}",
                     gib(s.mem_used),
                     gib(s.mem_total),
                     gib(s.disk_free),

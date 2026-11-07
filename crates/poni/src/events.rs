@@ -4,7 +4,7 @@
 //! `WM_APP_EVENT` to the island window; the UI thread drains the channel.
 
 use crate::gfx::Image;
-use crate::state::{MediaSession, PowerState, SysStats};
+use crate::state::{MediaSession, PowerState};
 use poni_core::lrc::Lyrics;
 use poni_core::timeline::Timeline;
 use std::sync::mpsc::Sender;
@@ -48,10 +48,6 @@ impl EventSink {
                 let _ = PostMessageW(self.hwnd.hwnd(), WM_APP_EVENT, WPARAM(0), LPARAM(0));
             }
         }
-    }
-
-    pub fn hwnd(&self) -> SendHwnd {
-        self.hwnd
     }
 }
 
@@ -108,7 +104,6 @@ pub enum AppEvent {
     /// Files are being dragged over the island (true) or left (false).
     DragHover(bool),
     ShelfThumb { path: String, image: Option<Image> },
-    Stats(SysStats),
     /// The System page's latest reading and the minute behind it
     /// (`services::sysmon`, each second while the page is open).
     System(Box<poni_core::sysmon::Monitor>),
@@ -130,8 +125,6 @@ pub enum AppEvent {
     AdzanEnded,
     /// Start with Windows is on (true) or off, read for the Settings page.
     Autostart(bool),
-    /// Free-form log line from a service thread.
-    Log(String),
     /// The Glass theme's screen copy has new pixels (or stopped).
     Backdrop,
 }

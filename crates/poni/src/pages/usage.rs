@@ -1470,6 +1470,7 @@ mod tests {
         assert_eq!(parts(&st, ProviderId::Kimi), [Part::Trouble { title: "Not signed in".into(), line: "Sign in to Kimi Code on this computer".into(), act: None }]);
     }
 
+    #[test]
     fn every_trouble_has_plain_words() {
         let all = [
             Trouble::NotFound,

@@ -88,8 +88,6 @@ pub enum Icon {
     Download,
     /// Record (Oyenza Studio Recorder): a dot that fits inside `Circle`.
     Record,
-    /// The Record tab: a ring with the record dot inside.
-    Recorder,
     /// The Record page's targets: a display, an app window, a dragged-out area.
     Screen,
     AppWindow,
@@ -323,7 +321,6 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         Script => p![s("M10 6.5h10"), s("M10 12h10"), s("M10 17.5h6.5"), f("M3.6 9.3v5.4a.8.8 0 0 0 1.2.7l4.3-2.7a.8.8 0 0 0 0-1.4L4.8 8.6a.8.8 0 0 0-1.2.7z")],
         Stop => p![f("M8.2 6.5h7.6a1.7 1.7 0 0 1 1.7 1.7v7.6a1.7 1.7 0 0 1-1.7 1.7H8.2a1.7 1.7 0 0 1-1.7-1.7V8.2a1.7 1.7 0 0 1 1.7-1.7z")],
         Record => p![f("M6.5 12a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0-11 0z")],
-        Recorder => p![s(CIRCLE_9), f("M8.5 12a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0z")],
         Screen => p![s("M4.5 4.5h15A1.5 1.5 0 0 1 21 6v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 15V6a1.5 1.5 0 0 1 1.5-1.5z"), s("M12 16.5v3.5"), s("M8.5 20h7")],
         AppWindow => p![s("M5 4.5h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2z"), s("M3 9h18"), f("M5.6 6.75a.9.9 0 1 0 1.8 0a.9.9 0 1 0-1.8 0z"), f("M8.6 6.75a.9.9 0 1 0 1.8 0a.9.9 0 1 0-1.8 0z")],
         // Four corner marks: the frame of a selection.
@@ -477,7 +474,7 @@ mod tests {
         Icon::Sliders, Icon::Open, Icon::Eye, Icon::MoneyIn, Icon::MoneyOut, Icon::Transfer, Icon::Card, Icon::Wallet,
         Icon::Unlink, Icon::Gear,
         Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop, Icon::Script, Icon::Code, Icon::Record, Icon::Download,
-        Icon::Recorder, Icon::Screen, Icon::AppWindow, Icon::Area, Icon::Camera, Icon::Mic, Icon::Bell, Icon::Notes, Icon::Message,
+        Icon::Screen, Icon::AppWindow, Icon::Area, Icon::Camera, Icon::Mic, Icon::Bell, Icon::Notes, Icon::Message,
         Icon::Ai, Icon::OpenAi, Icon::Claude, Icon::OpenCode, Icon::Gemini, Icon::Antigravity, Icon::Cursor, Icon::Copilot, Icon::Kimi, Icon::Zai,
         Icon::MiniMax, Icon::OpenRouter, Icon::Command, Icon::Oyenza,
     ];

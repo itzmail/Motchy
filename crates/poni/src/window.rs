@@ -147,8 +147,6 @@ pub fn create_visual_window(island: HWND) -> Result<HWND> {
 pub enum CaptureOwner {
     Glass = 1,
     Script = 2,
-    /// A recording with Oyenza Studio Recorder: the island isn't in its video.
-    Recording = 4,
 }
 
 thread_local! {
@@ -283,9 +281,6 @@ pub struct MonitorInfo {
 }
 
 impl MonitorInfo {
-    pub fn scale(&self) -> f32 {
-        self.dpi as f32 / 96.0
-    }
     /// Y where the island hangs from: below Windows' own taskbar when it is
     /// docked at the top of this monitor, else the monitor's top edge. A bar
     /// that reserves the work area without being the taskbar (a macOS-style
@@ -301,9 +296,6 @@ impl MonitorInfo {
         } else {
             self.rect.top
         }
-    }
-    pub fn center_x(&self) -> i32 {
-        (self.rect.left + self.rect.right) / 2
     }
 }
 

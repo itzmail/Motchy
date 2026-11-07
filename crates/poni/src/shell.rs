@@ -11,9 +11,7 @@
 //! `javascript:`, `shell:`, relative names that would be searched on `PATH`)
 //! is logged and refused. Fixed exceptions: Settings > Apps > Startup
 //! ([`open_startup_settings`]) and Settings > Privacy > Notifications
-//! ([`open_notification_settings`]), constant URIs; Oyenza Studio Recorder's
-//! own action links ([`open_recorder_link`]): its fixed scheme and one
-//! percent-encoded value, as `poni_core::recorder` builds them; and an app
+//! ([`open_notification_settings`]), constant URIs; an app
 //! by its AppUserModelID in the Apps folder ([`open_app`]), the characters
 //! of an id only; the AI tab's Sign in: the Claude app's own `claude://`
 //! link ([`open_claude_app`]) and a service's sign-in command in a console
@@ -55,23 +53,6 @@ pub fn open(target: &str) {
         let r = unsafe { ShellExecuteW(None, w!("open"), &t, None, None, SW_SHOWNORMAL) };
         if (r.0 as isize) <= 32 {
             crate::pwarn!("open failed ({}): {}", r.0 as isize, for_log(&target));
-        }
-    });
-}
-
-/// Open one of Oyenza Studio Recorder's action links (asynchronously). Only
-/// the shape `poni_core::recorder` builds reaches the shell.
-pub fn open_recorder_link(link: &str) {
-    if !poni_core::recorder::is_action_link(link) {
-        crate::pwarn!("recorder link refused: {}", for_log(link));
-        return;
-    }
-    let link = link.to_string();
-    run("recorder", move || {
-        let t = HSTRING::from(link.as_str());
-        let r = unsafe { ShellExecuteW(None, w!("open"), &t, None, None, SW_SHOWNORMAL) };
-        if (r.0 as isize) <= 32 {
-            crate::pwarn!("recorder link failed ({})", r.0 as isize);
         }
     });
 }

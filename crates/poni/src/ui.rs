@@ -5,7 +5,7 @@
 //! resolved against the previous frame's hits, so a click shows up as
 //! `clicked == true` on the next frame (the app always repaints after input).
 
-use crate::gfx::{Align, Canvas, TextStyle, Weight};
+use crate::gfx::{Canvas, TextStyle, Weight};
 use crate::icons::Icon;
 use poni_core::geom::{palette, Color, Point, Rect};
 
@@ -251,33 +251,6 @@ impl<'a, 'g> Ui<'a, 'g> {
         let ir = Rect::from_center(r.center(), icon_size, icon_size);
         let col = if resp.pressed { color.mul_alpha(0.8) } else { color };
         self.c.icon(icon, ir, col);
-        resp
-    }
-
-    /// Filled capsule button with an optional leading icon.
-    pub fn pill_button(&mut self, id: WidgetId, r: Rect, label: &str, icon: Option<Icon>, fill: Color, text: Color) -> Resp {
-        let resp = self.button(id, r);
-        let f = if resp.pressed {
-            Color::lerp(fill, Color::white(1.0), 0.18)
-        } else if resp.hovered {
-            Color::lerp(fill, Color::white(1.0), 0.1)
-        } else {
-            fill
-        };
-        self.c.fill_rrect(r, r.h / 2.0, f);
-        let st = TextStyle::new(12.5).weight(Weight::Semibold).color(text).center();
-        match icon {
-            Some(i) => {
-                let (tw, _) = self.c.measure(label, &st, r.w);
-                let total = 14.0 + if label.is_empty() { 0.0 } else { 5.0 + tw };
-                let x = r.x + (r.w - total) / 2.0;
-                self.c.icon(i, Rect::new(x, r.center().y - 7.0, 14.0, 14.0), text);
-                if !label.is_empty() {
-                    self.c.text(label, Rect::new(x + 19.0, r.y, tw + 2.0, r.h), &st.align(Align::Left));
-                }
-            }
-            None => self.c.text(label, r, &st),
-        }
         resp
     }
 
