@@ -41,6 +41,14 @@
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Prayer times uses your location to pick the nearest kab/kota. Your location stays on this Mac.</string>
+	<!-- Shown when Today first asks to read the Mac's calendars. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Motchy shows your events on Today and makes new ones in your calendar.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Motchy shows your events on Today and makes new ones in your calendar.</string>
+	<!-- Shown when Tasks first syncs with Reminders. -->
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Motchy keeps your Tasks and one list in Reminders the same.</string>
 	<!-- Shown if macOS asks before the app reaches a file in Downloads it didn't make. -->
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Motchy opens files from Downloads that you put on the Shelf.</string>

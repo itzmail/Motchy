@@ -97,6 +97,15 @@ pub enum Command {
     SyncUrl(String),
     /// Ask whether the repository answers (Settings' Check).
     SyncCheck,
+    /// Ask macOS to let the Today page read the calendars (Mac only).
+    CalendarAllow,
+    /// Show another day's events on the Today page (days since 1970-01-01).
+    CalendarDay(i64),
+    /// Make an event in the Mac's Calendar (Mac only). Unix seconds; the
+    /// calendar is an index into `Agenda::calendars`.
+    CalendarAdd { title: String, start: i64, end: i64, calendar: usize },
+    /// Switch the Tasks ↔ Reminders sync on or off (Mac only).
+    RemindersToggle,
     /// Persist `AppState::settings` now (after a page toggled a setting).
     SaveSettings,
     /// Open the Settings window, or bring it forward (the gear, Windows).

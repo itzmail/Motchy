@@ -117,7 +117,7 @@ enum Scene {
     Coding(u8),
 }
 
-const SCENES: [Scene; 15] = [
+const SCENES: [Scene; 16] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Hover,
@@ -128,6 +128,7 @@ const SCENES: [Scene; 15] = [
     Scene::Page(PageKind::Focus),
     Scene::Page(PageKind::Today),
     Scene::Page(PageKind::Tasks),
+    Scene::Page(PageKind::Notes),
     Scene::Page(PageKind::Media),
     Scene::Page(PageKind::Shelf),
     // Slice 3: the pop-ups and the Shelf with real files.
@@ -654,6 +655,33 @@ fn seed(st: &mut AppState) {
         st.store.tasks.toggle(id, (unix - 1800).max(day_start + 60));
     }
     st.store.focus_sessions.insert(st.day_key(), 2);
+    // Today's agenda, Tasks' Reminders switch and a few notes, as a Mac with
+    // Calendars and Reminders allowed shows them.
+    use poni_core::agenda::{Access, Calendar, Event};
+    let ev = |title: &str, start_min: i64, mins: i64, all_day: bool, rgb: [f32; 3], link: bool| Event {
+        title: title.into(),
+        start: day_start + start_min * 60,
+        end: day_start + (start_min + mins) * 60,
+        all_day,
+        calendar: "Work".into(),
+        rgb,
+        link: link.then(|| "https://meet.google.com/abc-defg-hij".to_string()),
+    };
+    let (blue, green, orange) = ([0.04, 0.52, 1.0], [0.19, 0.82, 0.35], [1.0, 0.62, 0.04]);
+    st.ui.agenda.on = true;
+    st.ui.agenda.access = Access::Granted;
+    st.ui.agenda.events = vec![
+        ev("Sam's birthday", 0, 0, true, orange, false),
+        ev("Standup", 9 * 60 + 30, 30, false, blue, false),
+        ev("Design review with the whole team", 11 * 60, 60, false, blue, true),
+        ev("Lunch with Ana", 13 * 60, 60, false, green, false),
+    ];
+    st.ui.agenda.calendars = vec![Calendar { id: "w".into(), title: "Work".into() }];
+    st.ui.reminders.available = true;
+    st.ui.reminders.access = Access::Granted;
+    for (n, text) in ["Call the bank before 3", "Idea: let the island show the next meeting", "Renew the passport", "Gift for mum"].iter().enumerate() {
+        st.store.textnotes.add(text, unix - 600 * n as i64, 1 + n as u128);
+    }
 }
 
 fn media(st: &mut AppState) {

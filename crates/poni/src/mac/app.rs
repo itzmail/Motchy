@@ -94,8 +94,10 @@ enum Timer {
     Update,
     /// The day's sync to the person's git repository (`sync_due`).
     Sync,
+    /// Tasks ↔ Reminders, a moment after something changed (`reminders_sync_now`).
+    Reminders,
 }
-const TIMERS: [Timer; 9] = [Timer::Hover, Timer::Collapse, Timer::Wake, Timer::Save, Timer::Minute, Timer::Smoke, Timer::Stats, Timer::Update, Timer::Sync];
+const TIMERS: [Timer; 10] = [Timer::Hover, Timer::Collapse, Timer::Wake, Timer::Save, Timer::Minute, Timer::Smoke, Timer::Stats, Timer::Update, Timer::Sync, Timer::Reminders];
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -432,6 +434,10 @@ pub struct App {
     first_run: bool,
     /// The Today page's stats are being sampled (once a second).
     stats_on: bool,
+    /// The Today page is open and listens for calendar changes.
+    agenda_watch: bool,
+    /// When the Tasks ↔ Reminders read in flight began (monotonic seconds).
+    reminders_busy: Option<f64>,
     /// The System page's sampler thread: from the start while its history is
     /// kept (`Settings::system_history_on`: System on, its history kept),
     /// else from the first time the page opens.
@@ -536,6 +542,8 @@ impl App {
         pinfo!("screen {}x{} pt at {}x, notch {:?}", screen.w, screen.h, screen.scale, screen.notch);
         let gfx = Gfx::new(screen.scale);
         let mut st = AppState::new(settings, store);
+        // The Mac's Calendar takes the stat tiles' place on Today.
+        st.ui.agenda.on = true;
         st.now = clock::mono();
         st.local = clock::local_now();
         st.unix = clock::unix_now();
@@ -583,6 +591,8 @@ impl App {
             store_writable: d_out.writable(),
             first_run: s_out == LoadOutcome::Missing,
             stats_on: false,
+            agenda_watch: false,
+            reminders_busy: None,
             sysmon: None,
             sysmon_on: false,
             away: (false, false),
@@ -644,6 +654,7 @@ impl App {
         self.sync_addons();
         self.schedule_update();
         self.start_sync_clock();
+        self.start_reminders();
         self.sync_coding_server();
         self.fetch_setup();
         // Shelf tiles for what was left on the Shelf.
@@ -786,6 +797,7 @@ impl App {
             Timer::Smoke => self.smoke_step(),
             Timer::Update => self.update_due(),
             Timer::Sync => self.sync_due(),
+            Timer::Reminders => self.reminders_sync_now(),
             Timer::Stats => {
                 if self.stats_on {
                     self.st.stats = services::sysstats::sample();
@@ -1322,6 +1334,69 @@ impl App {
         }
     }
 
+    /// The Today page opened or closed. Open, macOS tells when the calendars
+    /// change (no polling) and the day's events are read again; closed,
+    /// nothing listens.
+    fn set_agenda_watch(&mut self, on: bool) {
+        if on == self.agenda_watch {
+            return;
+        }
+        self.agenda_watch = on;
+        if on {
+            if services::eventkit::access() == poni_core::agenda::Access::Granted {
+                services::eventkit::watch(self.sink.clone());
+            }
+            self.agenda_refresh();
+        } else {
+            services::eventkit::unwatch();
+        }
+    }
+
+    /// Read the shown day's events again (and the calendars a new event may
+    /// go into). Nothing is read before the person has allowed Calendars.
+    fn agenda_refresh(&mut self) {
+        use poni_core::datetime::days_from_civil;
+        let l = self.st.local;
+        let today = days_from_civil(l.year, l.month, l.day);
+        let offset_s = i64::from(self.utc_offset_min()) * 60;
+        let a = &mut self.st.ui.agenda;
+        a.access = services::eventkit::access();
+        if a.access != poni_core::agenda::Access::Granted {
+            a.events.clear();
+            a.calendars.clear();
+            return;
+        }
+        let day = if a.day == 0 { today } else { a.day };
+        let from = day * 86_400 - offset_s;
+        a.events = services::eventkit::events(from, from + 86_400);
+        a.calendars = services::eventkit::writable_calendars();
+        a.calendar = a.calendar.min(a.calendars.len().saturating_sub(1));
+        self.request_frame();
+    }
+
+    /// macOS answered the Calendars question.
+    fn on_calendar_access(&mut self, access: poni_core::agenda::Access) {
+        if access == poni_core::agenda::Access::Granted && self.agenda_watch {
+            services::eventkit::watch(self.sink.clone());
+        }
+        self.agenda_refresh();
+    }
+
+    /// Make the event the form describes, then show the day again.
+    fn calendar_add(&mut self, title: &str, start: i64, end: i64, calendar: usize) {
+        let id = self.st.ui.agenda.calendars.get(calendar).map(|c| c.id.clone());
+        match services::eventkit::create_event(title, start, end, false, id.as_deref()) {
+            Ok(()) => {
+                let a = &mut self.st.ui.agenda;
+                a.adding = false;
+                a.title.clear();
+                a.error = None;
+            }
+            Err(e) => self.st.ui.agenda.error = Some(e),
+        }
+        self.agenda_refresh();
+    }
+
     /// The System page opened or closed. Open, its readings arrive each
     /// second; with the history kept the minute behind them arrives at once,
     /// else each opening starts a fresh minute.
@@ -1351,6 +1426,87 @@ impl App {
             }
             Err(e) => pwarn!("sysmon: couldn't start ({e})"),
         }
+    }
+
+    // ------------------------------------------------------------ reminders
+
+    /// Tasks can follow the Mac's Reminders; whether it does is the setting.
+    fn start_reminders(&mut self) {
+        self.st.ui.reminders.available = true;
+        self.apply_reminders_setting();
+    }
+
+    /// Make the listening, the question and the first sync follow the setting.
+    /// Off, nothing listens and nothing is read.
+    fn apply_reminders_setting(&mut self) {
+        use poni_core::agenda::Access;
+        if !self.st.settings.reminders_sync {
+            services::eventkit::unwatch_reminders();
+            self.kill_timer(Timer::Reminders);
+            self.reminders_busy = None;
+            self.st.ui.reminders.error = None;
+            self.request_frame();
+            return;
+        }
+        let access = services::eventkit::reminders_access();
+        self.st.ui.reminders.access = access;
+        match access {
+            Access::Granted => {
+                self.st.ui.reminders.error = None;
+                services::eventkit::watch_reminders(self.sink.clone());
+                self.reminders_soon();
+            }
+            Access::Ask => services::eventkit::request_reminders(self.sink.clone()),
+            Access::Denied => self.st.ui.reminders.error = Some("Allow Reminders for Motchy in System Settings".into()),
+        }
+        self.request_frame();
+    }
+
+    /// Sync in a moment: whatever else changes meanwhile goes in the same read.
+    fn reminders_soon(&mut self) {
+        if self.st.settings.reminders_sync && self.st.ui.reminders.access == poni_core::agenda::Access::Granted {
+            self.set_timer(Timer::Reminders, 1500);
+        }
+    }
+
+    /// Read the Reminders list; `on_reminders_read` does the rest.
+    fn reminders_sync_now(&mut self) {
+        // A read that never answered must not hold the sync for good.
+        if self.reminders_busy.is_some_and(|t| self.st.now - t < 30.0) {
+            return self.reminders_soon();
+        }
+        self.reminders_busy = Some(self.st.now);
+        self.st.ui.reminders.busy = true;
+        services::eventkit::read_reminders(self.sink.clone());
+    }
+
+    fn on_reminders_read(&mut self, got: Result<Vec<poni_core::todo::Remote>, String>) {
+        self.reminders_busy = None;
+        self.st.ui.reminders.busy = false;
+        if !self.st.settings.reminders_sync {
+            return;
+        }
+        match got {
+            Err(e) => self.st.ui.reminders.error = Some(e),
+            Ok(remote) => {
+                let before = self.st.store.tasks.clone();
+                let plan = self.st.store.tasks.merge(&remote, self.st.unix);
+                let mut error = None;
+                if !plan.is_empty() {
+                    let tasks = &self.st.store.tasks;
+                    let create: Vec<(u64, String, bool)> = plan.create.iter().filter_map(|id| tasks.tasks.iter().find(|t| t.id == *id)).map(|t| (t.id, t.text.clone(), t.done)).collect();
+                    match services::eventkit::write_reminders(&create, &plan.update, &plan.delete) {
+                        Ok(made) => made.into_iter().for_each(|(id, rid)| self.st.store.tasks.link(id, rid)),
+                        Err(e) => error = Some(e),
+                    }
+                }
+                self.st.ui.reminders.error = error;
+                if self.st.store.tasks != before {
+                    self.set_timer(Timer::Save, 800);
+                }
+            }
+        }
+        self.request_frame();
     }
 
     // ------------------------------------------------------------ git sync
@@ -1545,6 +1701,7 @@ impl App {
             now: now.max(0) as u64,
             today,
             machine: services::gitsync::machine(),
+            notes: self.st.store.textnotes.notes.clone(),
         };
         self.sync_running = true;
         self.st.sync.running = true;
@@ -1569,6 +1726,12 @@ impl App {
                     self.st.settings = s;
                     self.settings_changed(&before);
                     self.save_settings();
+                }
+                // Notes written meanwhile win where they are newer.
+                let before = self.st.store.textnotes.clone();
+                self.st.store.textnotes.absorb(&done.notes);
+                if self.st.store.textnotes != before {
+                    self.set_timer(Timer::Save, 800);
                 }
             }
             Err(e) => {
@@ -1915,6 +2078,14 @@ impl App {
                 self.request_frame();
             }
             AppEvent::Located(found) => self.on_located(found),
+            AppEvent::Calendar(access) => self.on_calendar_access(access),
+            AppEvent::CalendarChanged => self.agenda_refresh(),
+            AppEvent::Reminders(access) => {
+                self.st.ui.reminders.access = access;
+                self.apply_reminders_setting();
+            }
+            AppEvent::RemindersChanged => self.reminders_soon(),
+            AppEvent::RemindersRead(got) => self.on_reminders_read(got),
             AppEvent::Cities { file, got } => pages::prayer::cities_came(&mut self.st, file, got),
             AppEvent::Usage(ev) => self.on_usage(ev),
             AppEvent::AdzanEnded => self.adzan_ended(),
@@ -2899,7 +3070,23 @@ impl App {
                     self.settings_changed(&before);
                     self.save_settings();
                 }
-                Command::SaveStore => self.set_timer(Timer::Save, 800),
+                Command::SaveStore => {
+                    self.set_timer(Timer::Save, 800);
+                    self.reminders_soon();
+                }
+                Command::RemindersToggle => {
+                    let before = self.st.settings.clone();
+                    self.st.settings.reminders_sync = !before.reminders_sync;
+                    self.settings_changed(&before);
+                    self.save_settings();
+                    self.apply_reminders_setting();
+                }
+                Command::CalendarAllow => services::eventkit::request(self.sink.clone()),
+                Command::CalendarDay(day) => {
+                    self.st.ui.agenda.day = day;
+                    self.agenda_refresh();
+                }
+                Command::CalendarAdd { title, start, end, calendar } => self.calendar_add(&title, start, end, calendar),
                 Command::SyncNow => self.sync_now(),
                 Command::SyncUrl(url) => self.sync_set(&url),
                 Command::SyncCheck => self.sync_check(),
@@ -3167,6 +3354,7 @@ impl App {
         // Today's tiles need the readings only while they show .
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today) && pages::today::shows_tiles(&self.st));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
+        self.set_agenda_watch(self.mode == Mode::Expanded(PageKind::Today));
         self.set_usage_watch();
         // The Pill theme floats the island below the top edge (below the menu
         // bar for what hangs under a notch).
@@ -3976,7 +4164,6 @@ impl App {
 
     /// What each new part of the app did on a real Mac.
     fn smoke_check(&self, name: &str) -> Option<(&'static str, bool, String)> {
-        let gib = |b: u64| b as f64 / (1u64 << 30) as f64;
         match name {
             "settings-window" => {
                 let open = settings_host::is_open() && self.settings_ui.is_some();
@@ -3990,21 +4177,12 @@ impl App {
                 let gone = !settings_host::is_open() && self.settings_ui.is_none();
                 Some(("settings-window-closed", gone, format!("window {}, content {}", if settings_host::is_open() { "still open" } else { "gone" }, if self.settings_ui.is_some() { "kept" } else { "dropped" })))
             }
-            // Today always shows its stat tiles (no sign-in card in Motchy), so its
-            // once-a-second readings are on while the page is open; one taken here.
+            // Today shows the agenda in place of the stat tiles, so nothing samples
+            // once a second; the page listens for calendar changes while it is open.
             "open-today" => {
-                let s = services::sysstats::sample();
-                let ok = s.valid && s.mem_total > 0 && s.disk_total > 0 && s.uptime_s > 0 && self.stats_on && pages::today::shows_tiles(&self.st);
-                let d = format!(
-                    "one reading: memory {:.1} of {:.1} GiB, disk {:.0} GiB free of {:.0}, up {} min; Today's readings {}",
-                    gib(s.mem_used),
-                    gib(s.mem_total),
-                    gib(s.disk_free),
-                    gib(s.disk_total),
-                    s.uptime_s / 60,
-                    if self.stats_on { "on" } else { "off" },
-                );
-                Some(("system-stats", ok, d))
+                let ok = self.st.ui.agenda.on && !self.stats_on && self.agenda_watch;
+                let d = format!("agenda {:?}, {} events; stat readings {}", self.st.ui.agenda.access, self.st.ui.agenda.events.len(), if self.stats_on { "on" } else { "off" });
+                Some(("today-agenda", ok, d))
             }
             "system-on" => {
                 let tab = pages::tabs(&self.st).contains(&PageKind::System);

@@ -14,6 +14,7 @@ pub mod card;
 pub mod coding;
 pub mod focus;
 pub mod media;
+pub mod notes;
 pub mod notifications;
 pub mod prayer;
 pub mod script;
@@ -53,6 +54,9 @@ pub enum PageKind {
     Today,
     Shelf,
     Tasks,
+    /// Quick notes, kept on this Mac and synced to the person's repository
+    /// (a Mac; [`tabs`]).
+    Notes,
     Focus,
     /// AI usage: how much of each AI coding plan is left (`pages::usage`).
     /// A core tab, always in the row.
@@ -79,11 +83,12 @@ pub enum PageKind {
 impl PageKind {
     /// The tab row's order: the island's own pages, then the
     /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 13] = [
+    pub const ALL: [PageKind; 14] = [
         PageKind::Media,
         PageKind::Today,
         PageKind::Shelf,
         PageKind::Tasks,
+        PageKind::Notes,
         PageKind::Focus,
         PageKind::Ai,
         PageKind::Coding,
@@ -102,6 +107,7 @@ impl PageKind {
             PageKind::Ai => "ai",
             PageKind::Shelf => "shelf",
             PageKind::Tasks => "tasks",
+            PageKind::Notes => "notes",
             PageKind::Today => "today",
             PageKind::Coding => "coding",
             PageKind::System => "system",
@@ -125,6 +131,7 @@ impl PageKind {
             PageKind::Ai => "AI",
             PageKind::Shelf => "Shelf",
             PageKind::Tasks => "Tasks",
+            PageKind::Notes => "Notes",
             PageKind::Today => "Today",
             PageKind::Coding => "Coding",
             PageKind::System => "System",
@@ -143,6 +150,7 @@ impl PageKind {
             PageKind::Ai => Icon::Ai,
             PageKind::Shelf => Icon::Tray,
             PageKind::Tasks => Icon::ListChecks,
+            PageKind::Notes => Icon::File,
             PageKind::Today => Icon::Calendar,
             PageKind::Coding => Icon::Code,
             PageKind::System => Icon::Gauge,
@@ -203,6 +211,7 @@ fn row(st: &AppState, open: Option<PageKind>) -> Vec<PageKind> {
             PageKind::Prayer => st.prayer_on(),
             PageKind::Script => st.script_on(),
             PageKind::Notifications => st.notifications_on(),
+            PageKind::Notes => st.text_notes_on(),
             p if p.hideable() => !st.tab_hidden(p) || open == Some(p),
             p => p.tabbed(),
         })
@@ -224,6 +233,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Ai => usage::height(st),
         PageKind::Shelf => shelf::height(st),
         PageKind::Tasks => tasks::height(st),
+        PageKind::Notes => notes::height(st),
         PageKind::Today => today::height(st),
         PageKind::Coding => coding::height(st),
         PageKind::System => system::height(st),
@@ -242,6 +252,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
 pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
     match page {
         PageKind::Tasks => tasks::next_wake(st),
+        PageKind::Notes => notes::next_wake(st),
         PageKind::Shelf => shelf::next_wake(st),
         PageKind::Settings => settings::next_wake(st),
         PageKind::Script => script::next_wake(st),
@@ -347,6 +358,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Ai => usage::draw(ui, st, area),
         PageKind::Shelf => shelf::draw(ui, st, area),
         PageKind::Tasks => tasks::draw(ui, st, area),
+        PageKind::Notes => notes::draw(ui, st, area),
         PageKind::Today => today::draw(ui, st, area),
         PageKind::Coding => coding::draw(ui, st, area),
         PageKind::System => system::draw(ui, st, area),
@@ -617,16 +629,28 @@ mod tests {
         AppState::new(Settings::default(), Store::default())
     }
 
+    /// `row` with the Notes tab (a Mac's) put in before Focus, or AI when
+    /// Focus is off the row: Notes sits after Tasks and can't be hidden.
+    fn with_notes(row: &[PageKind]) -> Vec<PageKind> {
+        let mut v = row.to_vec();
+        if cfg!(target_os = "macos") {
+            let at = v.iter().position(|p| *p == PageKind::Focus).or_else(|| v.iter().position(|p| *p == PageKind::Ai)).unwrap_or(0);
+            v.insert(at, PageKind::Notes);
+        }
+        v
+    }
+
     #[test]
     fn the_row_is_the_island_s_own_pages_then_the_plus() {
         use PageKind::*;
         let mut st = state();
-        assert_eq!(tabs(&st), [Media, Today, Shelf, Tasks, Focus, Ai, Coding, Addons]);
+        assert_eq!(tabs(&st), with_notes(&[Media, Today, Shelf, Tasks, Focus, Ai, Coding, Addons]));
         // The add-ons' pages come before the "+".
         for id in ["system", "script"] {
             st.addons.insert(id, poni_core::addons::Status::Ready);
         }
-        assert_eq!(&tabs(&st)[5..], [Ai, Coding, System, Script, Addons]);
+        let row = tabs(&st);
+        assert_eq!(&row[row.len() - 5..], [Ai, Coding, System, Script, Addons]);
         // Clipboard left the app: an island last open there opens on Music.
         assert_eq!(PageKind::from_key("clipboard"), Media);
     }
@@ -638,20 +662,20 @@ mod tests {
         st.settings.hidden_tabs = vec!["today".into(), "tasks".into(), "addons".into()];
         st.page = Focus;
         // AI and the "+" can't be hidden.
-        assert_eq!(tabs(&st), [Media, Shelf, Focus, Ai, Coding, Addons]);
+        assert_eq!(tabs(&st), with_notes(&[Media, Shelf, Focus, Ai, Coding, Addons]));
         assert_eq!(first_tab(&st), Media);
         // Opened from elsewhere (a meeting's notice opens Today): its tab
         // shows while it's open, and stepping on leaves it behind.
         st.page = Today;
-        assert_eq!(tabs(&st), [Media, Today, Shelf, Focus, Ai, Coding, Addons]);
+        assert_eq!(tabs(&st), with_notes(&[Media, Today, Shelf, Focus, Ai, Coding, Addons]));
         st.page = step_tab(Today, &st, true);
         assert_eq!(st.page, Shelf);
         assert!(!tabs(&st).contains(&Today));
         // Every one of them hidden: the island opens on AI.
         st.settings.hidden_tabs = PageKind::HIDEABLE.iter().map(|p| p.key().to_string()).collect();
         st.page = Ai;
-        assert_eq!(tabs(&st), [Ai, Addons]);
-        assert_eq!(first_tab(&st), Ai);
+        assert_eq!(tabs(&st), with_notes(&[Ai, Addons]));
+        assert_eq!(first_tab(&st), if cfg!(target_os = "macos") { Notes } else { Ai });
         // A start on a hidden page opens on the first tab instead.
         let mut settings = poni_core::settings::Settings::default();
         settings.start_page = "today".into();

@@ -46,10 +46,11 @@ pub struct ConfigFile {
 
 /// Choices that belong to one Mac and are never shared: where its island
 /// sits and which display, where it is for Prayer times, the repository
-/// itself, and whether it listens for the editors (each Mac decides).
+/// itself, whether it listens for the editors and whether Tasks follows
+/// Reminders (each Mac decides).
 fn strip(v: &mut Value) {
     if let Some(o) = v.as_object_mut() {
-        for k in ["island_x", "monitor", "sync", "coding"] {
+        for k in ["island_x", "monitor", "sync", "coding", "reminders_sync"] {
             o.remove(k);
         }
         if let Some(p) = o.get_mut("prayer").and_then(Value::as_object_mut) {
@@ -195,7 +196,7 @@ mod tests {
         s.prayer.world_place = Some("x".into());
         s.use_24h = false;
         let v = shared(&s);
-        assert!(v.get("island_x").is_none() && v.get("monitor").is_none() && v.get("sync").is_none() && v.get("coding").is_none());
+        assert!(v.get("island_x").is_none() && v.get("monitor").is_none() && v.get("sync").is_none() && v.get("coding").is_none() && v.get("reminders_sync").is_none());
         assert!(v["prayer"].get("place").is_none() && v["prayer"].get("world_place").is_none());
         assert_eq!(v["use_24h"], false);
         assert_eq!(v["prayer"]["remind_before_min"], 10);

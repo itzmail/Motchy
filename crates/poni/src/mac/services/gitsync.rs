@@ -12,6 +12,7 @@
 
 use poni_core::gitsync::{self, ConfigAction, ConfigFile, Memory, CONFIG_FILE};
 use poni_core::settings::Settings;
+use poni_core::textnotes::{self, Note};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -40,6 +41,8 @@ pub struct Job {
     /// The Mac's own date, "2026-11-06".
     pub today: String,
     pub machine: String,
+    /// The Notes page's notes (tombstones too), read on the UI thread.
+    pub notes: Vec<Note>,
 }
 
 /// What a good run found out.
@@ -47,6 +50,9 @@ pub struct Done {
     pub memory: Memory,
     /// Settings to take on, when the repository's were chosen.
     pub settings: Option<Settings>,
+    /// The notes of this Mac and the repository, as one set: the app takes
+    /// them on with the notes it has by then (the newer of each wins).
+    pub notes: Vec<Note>,
 }
 
 /// This Mac's name for the repository's folders (`poni_core::gitsync::machine_id`).
@@ -69,14 +75,15 @@ pub fn check(url: &str) -> Result<(), String> {
 }
 
 fn run(j: &Job) -> Result<Done, String> {
-    let taken = git_part(j, &j.url)?;
+    let (taken, notes) = git_part(j, &j.url)?;
     let memory = Memory { last_day: j.today.clone(), synced: gitsync::fingerprint(taken.as_ref().unwrap_or(&j.settings)), error: String::new() };
-    Ok(Done { memory, settings: taken })
+    Ok(Done { memory, settings: taken, notes })
 }
 
 /// Pull, put the shared settings and the days where the rules say, commit,
-/// push. The settings to take on, if the repository's were chosen.
-fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
+/// push. The settings to take on, if the repository's were chosen, and the
+/// notes as one set.
+fn git_part(j: &Job, url: &str) -> Result<(Option<Settings>, Vec<Note>), String> {
     git(Path::new("."), &["--version"]).map_err(|_| "git isn't installed".to_string())?;
     ensure_clone(j, url)?;
     let dir = j.dir.as_path();
@@ -126,6 +133,8 @@ fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
         readme(dir, &both, &j.today)?;
     }
 
+    let notes = notes_part(dir, &j.notes)?;
+
     // Send what changed.
     git(dir, &["add", "-A"])?;
     if !git(dir, &["status", "--porcelain"])?.is_empty() {
@@ -140,7 +149,45 @@ fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
         git(dir, &["push", "--quiet", "-u", "origin", "HEAD"])?;
     }
 
-    Ok(taken)
+    Ok((taken, notes))
+}
+
+/// Largest note file read: a text of [`textnotes::MAX_LEN`] characters fits
+/// with room to spare; anything bigger is not one of ours.
+const MAX_NOTE_FILE: u64 = 200_000;
+
+/// The notes of this Mac and the repository's `notes/` folder become one set
+/// (the newer of each note wins, a deleted one stays a tombstone), and the
+/// folder gets every one that changed. Nothing is made when there are none.
+fn notes_part(dir: &Path, local: &[Note]) -> Result<Vec<Note>, String> {
+    let folder = dir.join("notes");
+    let merged = textnotes::merge(local, &load_notes(&folder));
+    if merged.is_empty() {
+        return Ok(merged);
+    }
+    fs::create_dir_all(&folder).map_err(|e| format!("notes: {e}"))?;
+    for n in &merged {
+        let path = folder.join(format!("{}.md", n.id));
+        put(&path, &fs::read_to_string(&path).unwrap_or_default(), &textnotes::to_file(n))?;
+    }
+    Ok(merged)
+}
+
+/// The notes in a folder of `<id>.md` files. A file that isn't text, is too
+/// big or has a name that is not an id is left alone.
+fn load_notes(folder: &Path) -> Vec<Note> {
+    let Ok(entries) = fs::read_dir(folder) else { return Vec::new() };
+    entries
+        .flatten()
+        .take(4 * textnotes::MAX_NOTES)
+        .filter_map(|e| {
+            let path = e.path();
+            let id = path.file_name()?.to_str()?.strip_suffix(".md")?.to_string();
+            let meta = e.metadata().ok().filter(|m| m.is_file() && m.len() <= MAX_NOTE_FILE)?;
+            let at = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
+            textnotes::from_file(&id, &fs::read_to_string(&path).ok()?, at)
+        })
+        .collect()
 }
 
 /// Put the coding report in the repository: this month in the `README.md`'s
@@ -245,7 +292,7 @@ mod tests {
     }
 
     fn job(url: &str, dir: PathBuf, settings: Settings, memory: Memory, time: u64, machine: &str) -> Job {
-        Job { url: url.into(), coding: None, dir, settings, memory, settings_time: time, now: time, today: "2026-11-06".into(), machine: machine.into() }
+        Job { url: url.into(), coding: None, dir, settings, memory, settings_time: time, now: time, today: "2026-11-06".into(), machine: machine.into(), notes: Vec::new() }
     }
 
     #[test]
@@ -368,6 +415,47 @@ mod tests {
         assert!(!e.contains(&url) && !e.contains('\n'), "{e}");
         // An address that would be an option is never passed on as one.
         assert!(check("--upload-pack=true").is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn two_macs_share_notes_and_deletions_through_a_repository() {
+        if git(Path::new("."), &["--version"]).is_err() {
+            return;
+        }
+        let note = |id: &str, text: &str, modified: i64| Note { id: id.into(), text: text.into(), modified, deleted: false };
+        let root = temp("notes");
+        let remote = root.join("remote.git");
+        git(&root, &["init", "--bare", "--quiet", "-b", "main", &remote.to_string_lossy()]).unwrap();
+        let url = remote.to_string_lossy().into_owned();
+        let run = |dir: &str, notes: Vec<Note>, time: u64| {
+            let mut j = job(&url, root.join(dir), Settings::default(), Memory::default(), time, dir);
+            j.notes = notes;
+            sync(&j).unwrap().notes
+        };
+
+        // A writes two notes; B, with none, receives them.
+        let a = run("a", vec![note("1", "buy milk", 10), note("2", "call the bank", 11)], 100);
+        assert_eq!(a.len(), 2);
+        assert!(root.join("a/notes/1.md").exists());
+        let b = run("b", vec![], 200);
+        assert_eq!(b, a);
+
+        // B edits one and deletes the other; A takes both on its next sync.
+        let b_edit = vec![note("1", "buy oat milk", 300), Note { deleted: true, text: String::new(), ..note("2", "", 301) }];
+        run("b", b_edit, 400);
+        let a2 = run("a", a, 500);
+        assert_eq!(a2.iter().find(|n| n.id == "1").unwrap().text, "buy oat milk");
+        assert!(a2.iter().find(|n| n.id == "2").unwrap().deleted, "the deletion reaches A, the note does not come back");
+
+        // A file written by hand in the repository, and one that is not a note.
+        fs::write(root.join("a/notes/todo.md"), "# Plan\n\n- ship\n").unwrap();
+        fs::write(root.join("a/notes/.hidden.md"), "no").unwrap();
+        fs::write(root.join("a/notes/readme.txt"), "no").unwrap();
+        let a3 = run("a", a2, 600);
+        assert_eq!(a3.iter().filter(|n| !n.deleted).count(), 2);
+        assert!(a3.iter().any(|n| n.id == "todo" && n.text.starts_with("# Plan")));
+        assert!(a3.iter().all(|n| n.id != ".hidden" && n.id != "readme"));
         let _ = fs::remove_dir_all(&root);
     }
 }

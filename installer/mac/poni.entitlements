@@ -18,5 +18,10 @@
 	     without this. People still say yes once (NSMicrophoneUsageDescription). -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Today's agenda reads the Mac's calendars and makes events; Tasks syncs with Reminders. The
+	     hardened runtime refuses both without this. People still say yes once
+	     (NSCalendarsFullAccessUsageDescription, NSRemindersFullAccessUsageDescription). -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>

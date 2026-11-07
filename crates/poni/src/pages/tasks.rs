@@ -12,6 +12,7 @@
 //! in and the checkbox pops. All of it is event-driven: nothing animates
 //! while idle.
 
+use crate::commands::Command;
 use crate::gfx::TextStyle;
 use crate::icons::Icon;
 use crate::state::AppState;
@@ -158,8 +159,13 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         st.ui.task_scroll = 0.0;
         anim.scroll = 0.0;
         anim.rows.clear();
+        // No footer on an empty list, but the Reminders switch must stay
+        // reachable: a list that is empty may be what Reminders should fill.
+        let (right, error) = reminders_pill(ui, st, footer_r);
         if anim.undo.is_some() {
-            undo_pill(ui, st, &mut anim, undo_id, footer_r);
+            undo_pill(ui, st, &mut anim, undo_id, Rect::new(footer_r.x, footer_r.y, (right - footer_r.x).max(0.0), footer_r.h));
+        } else if let Some(e) = error {
+            ui.c.text(&e, Rect::new(footer_r.x + TEXT_X, footer_r.y, (right - footer_r.x - TEXT_X).max(0.0), footer_r.h), &TextStyle::footnote().color(palette::ORANGE));
         }
     } else {
         let max_scroll = (items.len() as f32 * ROW_H - LIST_H).max(0.0);
@@ -418,6 +424,24 @@ fn undo_pill(ui: &mut Ui, st: &mut AppState, anim: &mut ListAnim, id: WidgetId, 
     r.x
 }
 
+/// The Reminders switch at the right edge of `r` (a Mac, and room for it).
+/// Returns the left edge of what it took, and what the last sync said if it
+/// failed while the sync is on.
+fn reminders_pill(ui: &mut Ui, st: &mut AppState, r: Rect) -> (f32, Option<String>) {
+    if !st.ui.reminders.available || r.w <= 380.0 {
+        return (r.right(), None);
+    }
+    let on = st.settings.reminders_sync;
+    let (label, icon) = if on { ("Reminders on", Some(Icon::Check)) } else { ("Sync Reminders", None) };
+    let w = ui.pill_width(label, icon.is_some(), true);
+    let pr = Rect::new(r.right() - w, r.y, w, r.h);
+    let style = if on { PillStyle::UtilityAccent(st.accent) } else { PillStyle::Utility };
+    if ui.pill(wid("tasks.reminders"), pr, label, icon, style).clicked {
+        st.cmd(Command::RemindersToggle);
+    }
+    (pr.x - 8.0, st.ui.reminders.error.clone().filter(|_| on))
+}
+
 /// "1/3 done today" with a small ring, then "Clear done" when anything is
 /// done, or "Undo" for a few seconds after a removal.
 fn draw_footer(ui: &mut Ui, st: &mut AppState, r: Rect, day_start: i64, full: bool, anim: &mut ListAnim, undo_id: WidgetId) {
@@ -426,13 +450,17 @@ fn draw_footer(ui: &mut Ui, st: &mut AppState, r: Rect, day_start: i64, full: bo
     let frac = if total > 0 { done as f32 / total as f32 } else { 0.0 };
     ui.c.ring(Point::new(r.x + MARK_X, cy), 6.0, 2.2, frac, RING_TRACK, palette::GREEN);
 
+    // The Reminders switch sits at the right edge; Undo and Clear done sit to its left.
+    let (right, reminders_error) = reminders_pill(ui, st, r);
+    let row = Rect::new(r.x, r.y, (right - r.x).max(0.0), r.h);
+
     let show_clear = done > 0;
-    let mut text_right = r.right();
+    let mut text_right = row.right();
     if anim.undo.is_some() {
-        text_right = undo_pill(ui, st, anim, undo_id, r) - 12.0;
+        text_right = undo_pill(ui, st, anim, undo_id, row) - 12.0;
     } else if show_clear {
         let w = ui.pill_width("Clear done", false, true);
-        let pr = Rect::new(r.right() - w, r.y, w, r.h);
+        let pr = Rect::new(row.right() - w, r.y, w, r.h);
         text_right = pr.x - 12.0;
         if ui.pill(wid("tasks.clear"), pr, "Clear done", None, PillStyle::Utility).clicked {
             let removed: Vec<Task> = st.store.tasks.tasks.iter().filter(|t| t.done).cloned().collect();
@@ -448,7 +476,9 @@ fn draw_footer(ui: &mut Ui, st: &mut AppState, r: Rect, day_start: i64, full: bo
 
     let tx = r.x + TEXT_X;
     let text_r = Rect::new(tx, r.y, (text_right - tx).max(0.0), r.h);
-    let (text, color) = if full && show_clear {
+    let (text, color) = if let Some(e) = reminders_error {
+        (e, palette::ORANGE)
+    } else if full && show_clear {
         ("List is full — clear done tasks to add more".to_string(), palette::ORANGE)
     } else if full {
         (format!("List is full ({MAX_TASKS} tasks)"), palette::ORANGE)
@@ -495,7 +525,7 @@ mod tests {
 
     #[test]
     fn undo_snapshots_accumulate() {
-        let task = |id: u64| Task { id, text: format!("t{id}"), done: false, created_unix: 0, done_unix: None };
+        let task = |id: u64| Task { id, text: format!("t{id}"), done: false, created_unix: 0, done_unix: None, modified_unix: 0, reminder_id: None };
         let mut anim = ListAnim::default();
         offer_undo(&mut anim, vec![task(1)], 1.0);
         offer_undo(&mut anim, vec![task(2)], 3.0);

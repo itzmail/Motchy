@@ -98,6 +98,16 @@ pub enum AppEvent {
     Sync(Result<crate::services::gitsync::Done, String>),
     /// Whether the repository answered (`services::gitsync::check`).
     SyncCheck(Result<(), String>),
+    /// The person answered macOS's Calendars question (`services::eventkit`).
+    Calendar(crate::services::eventkit::Access),
+    /// The Mac's calendars changed while the Today page was open.
+    CalendarChanged,
+    /// The person answered macOS's Reminders question.
+    Reminders(crate::services::eventkit::Access),
+    /// Reminders changed (Tasks sync is on).
+    RemindersChanged,
+    /// The Tasks list in Reminders was read (`services::eventkit::read_reminders`).
+    RemindersRead(Result<Vec<poni_core::todo::Remote>, String>),
     /// Prayer times' adzan played to its end (`services::adzan`).
     AdzanEnded,
     /// Free-form log line from a service thread.

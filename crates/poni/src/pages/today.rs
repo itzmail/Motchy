@@ -2,7 +2,9 @@
 //!
 //! On the left the date and five weeks from this Monday (today filled); on
 //! the right four tiles: CPU, memory, disk and battery (or uptime on a
-//! desktop). On an island narrower than [`COMPACT_BELOW`] the weeks make way.
+//! desktop). On a Mac the right side is the agenda instead: the day picked
+//! in the weeks, its events from Calendar, and a form for a new one. On an
+//! island narrower than [`COMPACT_BELOW`] the weeks make way.
 //! The header leaves the date out on this page, so the page always shows it.
 //!
 //! Stats are sampled once a second by the app only while the tiles show
@@ -12,7 +14,8 @@ use crate::commands::Command;
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::{AppState, PowerState, SysStats};
-use crate::ui::{wid_n, Ui};
+use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_SMALL};
+use poni_core::agenda::{self, Access};
 use poni_core::datetime::{civil_from_days, days_from_civil, fmt_clock, weekday_from_days, LocalDateTime, MONTH_SHORT, WEEKDAY_SHORT};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::sysmon::Module;
@@ -49,9 +52,10 @@ pub fn height(_st: &AppState) -> f32 {
     HEIGHT
 }
 
-/// The stat tiles show (the app samples the stats only meanwhile).
-pub fn shows_tiles(_st: &AppState) -> bool {
-    true
+/// The stat tiles show (the app samples the stats only meanwhile). With the
+/// agenda there are none.
+pub fn shows_tiles(st: &AppState) -> bool {
+    !st.ui.agenda.on
 }
 
 /// Nothing on this page moves by itself.
@@ -71,13 +75,17 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     }
     // The bottom-right tile shares the Pill card's corner.
     let card = super::card::pill_card(st, area);
-    draw_tiles(ui, st, right, card);
+    if st.ui.agenda.on {
+        draw_agenda(ui, st, right, card);
+    } else {
+        draw_tiles(ui, st, right, card);
+    }
 }
 
 // ------------------------------------------------------------------ the weeks
 
 /// The date and five weeks from this Monday: today filled.
-fn draw_weeks_grid(ui: &mut Ui, st: &AppState, r: Rect) {
+fn draw_weeks_grid(ui: &mut Ui, st: &mut AppState, r: Rect) {
     let t = st.local;
     if !valid_date(&t) {
         return;
@@ -97,12 +105,20 @@ fn draw_weeks_grid(ui: &mut Ui, st: &AppState, r: Rect) {
     let start = today - (i64::from(weekday_from_days(today)) + 6) % 7;
     let num_st = TextStyle::footnote().tabular().center();
     let step = Color::white(0.2);
+    let picked = if st.ui.agenda.on && st.ui.agenda.day != 0 { st.ui.agenda.day } else { today };
     for i in 0..GRID_DAYS {
         let day = start + i;
         let (row, col) = ((i / 7) as f32, (i % 7) as usize);
         let cell = Rect::new(r.x + col as f32 * CELL_W, top + row * CELL_H, CELL_W, CELL_H);
         let num = Rect::new(cell.x, cell.y, cell.w, 20.0);
         let c = Point::new(num.center().x, num.center().y);
+        // With the agenda, a day is a button: it picks the day the agenda shows.
+        if st.ui.agenda.on && ui.button(wid_n("today-day", i as u64), cell).clicked {
+            st.cmd(Command::CalendarDay(if day == today { 0 } else { day }));
+        }
+        if day == picked && day != today {
+            ui.c.stroke_circle(c, 9.5, st.accent, 1.5);
+        }
         let (_, _, d) = civil_from_days(day);
         let label = d.to_string();
         if day == today {
@@ -133,6 +149,213 @@ fn draw_weeks_grid(ui: &mut Ui, st: &AppState, r: Rect) {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------ agenda
+
+const HEAD_H: f32 = 26.0;
+const FORM_ROW_H: f32 = 34.0;
+
+/// The Mac's UTC offset in seconds, from its clock.
+fn offset_s(st: &AppState) -> i64 {
+    offset_s_of(st.local, st.unix)
+}
+
+/// The day the agenda shows, as days since 1970-01-01.
+fn agenda_day(st: &AppState) -> i64 {
+    let a = &st.ui.agenda;
+    if a.day != 0 {
+        a.day
+    } else {
+        days_from_civil(st.local.year, st.local.month, st.local.day)
+    }
+}
+
+fn draw_agenda(ui: &mut Ui, st: &mut AppState, r: Rect, card: Option<(Rect, f32)>) {
+    if r.w < 120.0 {
+        return;
+    }
+    let day = agenda_day(st);
+    let today = days_from_civil(st.local.year, st.local.month, st.local.day);
+    let label = if day == today {
+        "Today".to_string()
+    } else {
+        let (_, m, d) = civil_from_days(day);
+        format!("{} {} {}", WEEKDAY_SHORT[weekday_from_days(day) as usize % 7], d, MONTH_SHORT[(m.clamp(1, 12) - 1) as usize])
+    };
+    ui.c.text(&label, Rect::new(r.x, r.y, (r.w - 30.0).max(0.0), HEAD_H), &TextStyle::headline());
+    let body = Rect::new(r.x, r.y + HEAD_H + 6.0, r.w, (r.h - HEAD_H - 6.0).max(0.0));
+
+    match st.ui.agenda.access {
+        Access::Ask => {
+            super::card::fill_box(ui, card, body, TILE_RADIUS, palette::SURFACE);
+            let c = body.center();
+            ui.c.text("Show your Mac's calendar here", Rect::new(body.x, c.y - 30.0, body.w, 20.0), &TextStyle::footnote().color(palette::TEXT_DIM).center());
+            let btn = Rect::from_center(Point::new(c.x, c.y + 10.0), 150.0, 30.0);
+            let resp = ui.button(wid("today-allow"), btn);
+            ui.c.fill_rrect(btn, 15.0, if resp.hovered { st.accent.with_alpha(0.85) } else { st.accent });
+            ui.c.text("Allow Calendars", btn, &TextStyle::caption().weight(Weight::Bold).color(ink_on(st.accent)).center());
+            if resp.clicked {
+                st.cmd(Command::CalendarAllow);
+            }
+        }
+        Access::Denied => {
+            super::card::fill_box(ui, card, body, TILE_RADIUS, palette::SURFACE);
+            let c = body.center();
+            let dim = TextStyle::footnote().color(palette::TEXT_DIM).center();
+            ui.c.text("Calendars is off for Motchy", Rect::new(body.x, c.y - 20.0, body.w, 20.0), &dim);
+            ui.c.text("System Settings › Privacy & Security", Rect::new(body.x, c.y, body.w, 20.0), &dim);
+        }
+        Access::Granted => {
+            let add = Rect::new(r.right() - 24.0, r.y + 1.0, 24.0, 24.0);
+            let icon = if st.ui.agenda.adding { Icon::Close } else { Icon::Plus };
+            if ui.icon_button(wid("today-add"), add, icon, Color::white(0.8), 14.0).clicked {
+                let open = !st.ui.agenda.adding;
+                st.ui.agenda.adding = open;
+                st.ui.agenda.error = None;
+                if open && st.ui.agenda.time.is_empty() {
+                    let minutes = (st.unix + offset_s(st)).rem_euclid(86_400) / 60;
+                    st.ui.agenda.time = agenda::next_hour(minutes);
+                }
+            }
+            if st.ui.agenda.adding {
+                draw_form(ui, st, body, day);
+            } else {
+                draw_events(ui, st, body);
+            }
+        }
+    }
+}
+
+/// A card's height and the gap between cards.
+const CARD_H: f32 = 44.0;
+const CARD_GAP: f32 = 6.0;
+
+/// The day's events as cards: the calendar's colour at the left, the time
+/// and what is left of it under the title. The one on now is filled with the
+/// accent and shows how far through it is; one that ended is dim; one with a
+/// video call has Join.
+fn draw_events(ui: &mut Ui, st: &mut AppState, body: Rect) {
+    if st.ui.agenda.events.is_empty() {
+        super::empty_state(ui, body, Icon::Calendar, "No events", "Nothing on this day");
+        return;
+    }
+    let (off, now, accent, h24) = (offset_s(st), st.unix, st.accent, st.settings.use_24h);
+    let n = st.ui.agenda.events.len();
+    let max_scroll = (n as f32 * (CARD_H + CARD_GAP) - CARD_GAP - body.h).max(0.0);
+    if max_scroll > 0.0 {
+        st.ui.agenda.scroll -= ui.wheel_in(body) * (CARD_H + CARD_GAP);
+    }
+    st.ui.agenda.scroll = st.ui.agenda.scroll.clamp(0.0, max_scroll);
+    let scroll = st.ui.agenda.scroll;
+    let mut join = None;
+    ui.c.clip(body);
+    for (i, e) in st.ui.agenda.events.iter().enumerate() {
+        let card = Rect::new(body.x, body.y + i as f32 * (CARD_H + CARD_GAP) - scroll, body.w, CARD_H);
+        if card.bottom() < body.y || card.y > body.bottom() {
+            continue;
+        }
+        let phase = agenda::phase(e, now);
+        let running = matches!(phase, agenda::Phase::Now { .. });
+        let ended = phase == agenda::Phase::Ended;
+        let fill = if running { accent } else { palette::SURFACE };
+        super::card::fill_box(ui, None, card, 12.0, fill);
+        let (ink, sub) = if running {
+            (ink_on(accent), ink_on(accent).with_alpha(0.75))
+        } else if ended {
+            (palette::TEXT_FAINT, palette::TEXT_FAINT)
+        } else {
+            (palette::TEXT, palette::TEXT_DIM)
+        };
+        // The calendar's colour (on the accent card it would vanish: a light bar then).
+        let bar = if running { ink.with_alpha(0.55) } else { Color::rgba(e.rgb[0], e.rgb[1], e.rgb[2], if ended { 0.45 } else { 1.0 }) };
+        ui.c.fill_rrect(Rect::new(card.x + 8.0, card.y + 8.0, 3.0, card.h - 16.0), 1.5, bar);
+
+        // Join, at the right, unless it is over.
+        let mut text_right = card.right() - 10.0;
+        if let Some(url) = e.link.as_ref().filter(|_| !ended) {
+            let w = ui.pill_width("Join", false, true);
+            let pr = Rect::new(card.right() - 8.0 - w, card.center().y - PILL_SMALL / 2.0, w, PILL_SMALL);
+            let style = if running { PillStyle::Primary(ink_on(accent)) } else { PillStyle::UtilityAccent(accent) };
+            if ui.pill(wid_n("today-join", i as u64), pr, "Join", None, style).clicked {
+                join = Some(url.clone());
+            }
+            text_right = pr.x - 8.0;
+        }
+        let tx = card.x + 19.0;
+        let tw = (text_right - tx).max(0.0);
+        let title = if e.title.is_empty() { "(no title)" } else { e.title.as_str() };
+        ui.c.text(title, Rect::new(tx, card.y + 5.0, tw, 18.0), &TextStyle::footnote().weight(Weight::Semibold).color(ink));
+        let clock = |t: i64| agenda::clock((t + off).rem_euclid(86_400) / 60, h24);
+        let when = if e.all_day { String::new() } else { format!("{}–{}", clock(e.start), clock(e.end)) };
+        let status = agenda::status(e, now);
+        let line = match (when.is_empty(), status.is_empty() || e.all_day) {
+            (true, _) => status,
+            (false, true) => when,
+            (false, false) => format!("{when} · {status}"),
+        };
+        ui.c.text(&line, Rect::new(tx, card.y + 23.0, tw, 16.0), &TextStyle::caption().tabular().color(sub));
+        if let agenda::Phase::Now { progress, .. } = phase {
+            let track = Rect::new(card.x + 19.0, card.bottom() - 4.0, card.w - 30.0, 2.0);
+            ui.c.fill_rrect(track, 1.0, ink.with_alpha(0.25));
+            ui.c.fill_rrect(Rect::new(track.x, track.y, track.w * progress, track.h), 1.0, ink);
+        }
+    }
+    ui.c.unclip();
+    if let Some(url) = join {
+        st.cmd(Command::OpenUrl(url));
+    }
+}
+
+/// The new-event form: a title (Enter saves), a start time and the calendar.
+fn draw_form(ui: &mut Ui, st: &mut AppState, body: Rect, day: i64) {
+    let accent = st.accent;
+    let title_r = Rect::new(body.x, body.y, body.w, FORM_ROW_H);
+    let resp = ui.text_input_row(wid("today-title"), title_r, &mut st.ui.agenda.title, "New event, Enter to save", 120, accent, Some(Icon::Plus));
+    let time_r = Rect::new(body.x, body.y + FORM_ROW_H + 6.0, 96.0, FORM_ROW_H);
+    let time = ui.text_input_row(wid("today-time"), time_r, &mut st.ui.agenda.time, "14:00", 5, accent, Some(Icon::Clock));
+    // The calendar: one click moves to the next.
+    let cal_r = Rect::new(time_r.right() + 8.0, time_r.y, (body.right() - time_r.right() - 8.0).max(0.0), FORM_ROW_H);
+    let n = st.ui.agenda.calendars.len();
+    let name = st.ui.agenda.calendars.get(st.ui.agenda.calendar).map_or("No calendar", |c| c.title.as_str()).to_string();
+    let cal = ui.button(wid("today-cal"), cal_r);
+    ui.c.fill_rrect(cal_r, 12.0, if cal.hovered { palette::SURFACE_HOVER } else { palette::SURFACE });
+    ui.c.icon(Icon::Calendar, Rect::from_center(Point::new(cal_r.x + 16.0, cal_r.center().y), 12.0, 12.0), Color::white(0.72));
+    ui.c.text(&name, Rect::new(cal_r.x + 30.0, cal_r.y, (cal_r.w - 38.0).max(0.0), cal_r.h), &TextStyle::footnote().color(palette::TEXT));
+    if cal.clicked && n > 1 {
+        st.ui.agenda.calendar = (st.ui.agenda.calendar + 1) % n;
+    }
+    if let Some(e) = st.ui.agenda.error.clone() {
+        ui.c.text(&e, Rect::new(body.x, body.bottom() - 18.0, body.w, 16.0), &TextStyle::caption().color(palette::ORANGE));
+    }
+    if resp.cancelled || time.cancelled {
+        st.ui.agenda.adding = false;
+    } else if resp.submitted || time.submitted {
+        submit_event(st, day);
+    }
+}
+
+/// Send the form as an event of one hour on `day`.
+fn submit_event(st: &mut AppState, day: i64) {
+    let a = &mut st.ui.agenda;
+    let title = a.title.split_whitespace().collect::<Vec<_>>().join(" ");
+    if title.is_empty() {
+        return;
+    }
+    let Some(minutes) = agenda::parse_time(&a.time) else {
+        a.error = Some("Start time like 14:00".into());
+        return;
+    };
+    a.error = None;
+    let start = day * 86_400 + minutes * 60 - offset_s_of(st.local, st.unix);
+    let end = start + 3600;
+    let calendar = st.ui.agenda.calendar;
+    st.cmd(Command::CalendarAdd { title, start, end, calendar });
+}
+
+fn offset_s_of(local: LocalDateTime, unix: i64) -> i64 {
+    let secs = days_from_civil(local.year, local.month, local.day) * 86_400 + i64::from(local.hour) * 3600 + i64::from(local.minute) * 60 + i64::from(local.second);
+    ((secs - unix) as f64 / 900.0).round() as i64 * 900
 }
 
 // ------------------------------------------------------------------ tiles

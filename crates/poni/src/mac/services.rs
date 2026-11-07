@@ -19,6 +19,9 @@ pub mod audio;
 mod cf;
 #[path = "services/clipboard.rs"]
 pub mod clipboard;
+// The Mac's Calendar (EventKit), for the Today page's agenda.
+#[path = "services/eventkit.rs"]
+pub mod eventkit;
 #[path = "services/fullscreen.rs"]
 pub mod fullscreen;
 // Sync to the person's own git repository.

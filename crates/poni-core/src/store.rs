@@ -43,6 +43,8 @@ pub struct Store {
     pub last_page: String,
     /// The Script page's script and its pace.
     pub script: crate::script::Script,
+    /// The Notes page's quick notes (a Mac).
+    pub textnotes: crate::textnotes::NoteList,
 }
 
 impl Default for Store {
@@ -55,6 +57,7 @@ impl Default for Store {
             focus_sessions: BTreeMap::new(),
             last_page: String::new(),
             script: crate::script::Script::default(),
+            textnotes: crate::textnotes::NoteList::default(),
         }
     }
 }

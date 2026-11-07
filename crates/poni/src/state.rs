@@ -269,6 +269,14 @@ pub enum Said {
 #[derive(Clone, Debug, Default)]
 pub struct PageUiState {
     pub task_input: String,
+    /// The Notes page's field, the note being changed (its id) and its scroll.
+    pub note_input: String,
+    pub note_edit: Option<String>,
+    pub note_scroll: f32,
+    /// The Today page's agenda (the Mac's Calendar); `on` only on a Mac.
+    pub agenda: poni_core::agenda::Agenda,
+    /// Tasks and the Mac's Reminders; `available` only on a Mac.
+    pub reminders: poni_core::agenda::Reminders,
     /// Settings' repository field: what is typed, and whether it shows
     /// while a repository is already set (Change).
     pub sync_url: String,
@@ -598,6 +606,7 @@ impl AppState {
             PageKind::Script => !st.script_on(),
             PageKind::System => !st.system_on(),
             PageKind::Notifications => !st.notifications_on(),
+            PageKind::Notes => !st.text_notes_on(),
             p => st.tab_hidden(p),
         };
         if off {
@@ -625,6 +634,11 @@ impl AppState {
     /// notifications from the apps picked there show on the island.
     pub fn notifications_on(&self) -> bool {
         cfg!(windows) && self.addon(poni_core::addons::NOTIFICATIONS.id) == AddonStatus::Ready
+    }
+
+    /// The Notes page has a tab (a Mac).
+    pub fn text_notes_on(&self) -> bool {
+        cfg!(target_os = "macos")
     }
 
     /// Settings took this page's tab off the header's row (Music, Today,

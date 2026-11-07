@@ -3572,7 +3572,7 @@ impl App {
                 }
                 Command::BlurText => self.blur_text(),
                 // Git sync and coding time are Mac-only so far: nothing asks for them on Windows.
-                Command::SyncNow | Command::CodingOn | Command::CodingSetup | Command::CodingRestore | Command::SyncUrl(_) | Command::SyncCheck => {}
+                Command::SyncNow | Command::CodingOn | Command::CodingSetup | Command::CodingRestore | Command::SyncUrl(_) | Command::SyncCheck | Command::CalendarAllow | Command::CalendarDay(_) | Command::CalendarAdd { .. } | Command::RemindersToggle => {}
                 Command::ScriptPaste => {
                     // Read here, not through the text field path: that one drops line breaks.
                     let text = services::clipboard::read_text(self.hwnd).map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());

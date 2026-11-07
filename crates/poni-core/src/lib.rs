@@ -6,6 +6,7 @@
 //! I/O, which still runs anywhere.
 
 pub mod addons;
+pub mod agenda;
 pub mod applemusic;
 pub mod brand;
 pub mod datetime;
@@ -34,6 +35,7 @@ pub mod spring;
 pub mod store;
 pub mod svgpath;
 pub mod sysmon;
+pub mod textnotes;
 pub mod timeline;
 pub mod todo;
 pub mod ttml;

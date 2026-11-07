@@ -114,6 +114,9 @@ pub struct Settings {
     /// The person's own git repository for their settings and activity
     /// (`crate::gitsync`). Never shared itself.
     pub sync: SyncSettings,
+    /// Tasks and one list in the Mac's Reminders are kept the same. Off until
+    /// switched on: nothing reads Reminders by default. Each Mac decides.
+    pub reminders_sync: bool,
     /// The Coding page's choices.
     pub coding: CodingSettings,
 }
@@ -226,6 +229,7 @@ impl Default for Settings {
             usage: UsageSettings::default(),
             notifications: crate::notifications::NotificationSettings::default(),
             sync: SyncSettings::default(),
+            reminders_sync: false,
             coding: CodingSettings::default(),
         }
     }
