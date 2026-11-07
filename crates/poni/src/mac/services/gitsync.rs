@@ -143,23 +143,34 @@ fn git_part(j: &Job, url: &str) -> Result<Option<Settings>, String> {
     Ok(taken)
 }
 
-/// Put the coding report in the repository's `README.md`: only the block
-/// between its markers, so what the person wrote stays. Nothing is written
-/// when there are no days yet, or when the file can't be read as text (it is
-/// theirs, so it is left alone).
+/// Put the coding report in the repository: this month in the `README.md`'s
+/// marked block (what the person wrote stays), and the whole history as
+/// generated files in `coding-activity/`. Nothing is written when there are no
+/// days yet, when the README can't be read as text (it is theirs), or when a
+/// file would not change.
 fn readme(dir: &Path, days: &[poni_core::wakatime::Day], today: &str) -> Result<(), String> {
+    use poni_core::codingreport as report;
     if days.is_empty() {
         return Ok(());
     }
     let path = dir.join("README.md");
-    let old = match fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(_) => return Ok(()),
-    };
-    let new = poni_core::codingreport::splice(&old, &poni_core::codingreport::report(days, today));
+    match fs::read_to_string(&path) {
+        Ok(old) => put(&path, &old, &report::splice(&old, &report::report(days, today)))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => put(&path, "", &report::splice("", &report::report(days, today)))?,
+        Err(_) => {}
+    }
+    for (file, text) in report::history(days, today) {
+        let path = dir.join(&file);
+        fs::create_dir_all(path.parent().ok_or("no folder")?).map_err(|e| format!("{file}: {e}"))?;
+        put(&path, &fs::read_to_string(&path).unwrap_or_default(), &text)?;
+    }
+    Ok(())
+}
+
+/// Write `new` to `path` unless it is what is there.
+fn put(path: &Path, old: &str, new: &str) -> Result<(), String> {
     if new != old {
-        fs::write(&path, new).map_err(|e| format!("README.md: {e}"))?;
+        fs::write(path, new).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok(())
 }
@@ -322,7 +333,11 @@ mod tests {
         let done = sync(&j).unwrap();
         let text = fs::read_to_string(root.join("a/README.md")).unwrap();
         assert!(text.starts_with("# Mine\n\nHello.\n"), "{text}");
-        assert!(text.contains("## Coding report") && text.contains("| motchy | 1h 00m |"), "{text}");
+        assert!(text.contains("## Coding report · November 2026") && text.contains("| motchy | 1h 00m |"), "{text}");
+        // The whole history is in its folder, one file for the year.
+        let year = fs::read_to_string(root.join("a/coding-activity/2026.md")).unwrap();
+        assert!(year.contains("# 2026") && year.contains("<summary>November 2026"), "{year}");
+        assert!(root.join("a/coding-activity/README.md").exists());
         // It went to the repository too.
         let check = root.join("check");
         git(&root, &["clone", "--quiet", &url, &check.to_string_lossy()]).unwrap();
